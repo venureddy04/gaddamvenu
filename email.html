@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0d1b2a">
+  <meta name="robots" content="noindex">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="assets/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <title>Email · Gaddam Venu</title>
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side"></aside>
+  <div class="scrim" id="scrim"></div>
+  <div class="content">
+    <header class="top" id="top"></header>
+    <main id="main"></main>
+    <div class="foot">© Gaddam Venu · Developed by Gaddam Venu</div>
+  </div>
+</div>
+<div id="modal" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script>
+async function draw() {
+  const hist = await T('email_log', { n: 300 });
+  const cfg = await T('mail_settings_get').catch(() => null);          // null = sql/10_upgrade_v48.sql was not run yet
+  $('#main').innerHTML =
+    '<div class="pagehead"><h2>Email</h2><p>E-mail goes <b>only to students</b>, and is sent automatically <b>whenever you post anything for a subject</b>: notice, task, syllabus, lesson plan, materials, video lesson, lab program, lab manual, exam link, format, Zoom meeting, or when you <b>publish Theory / Lab Marks</b> (the marks e-mail never contains the marks themselves). The same message goes to all the students of the subject at one time (information only, no links), or only to the students you choose (notice) or the batch (lab program, lab manual). Each message is listed once below.</p></div>' +
+    '<div class="card"><h3>E-mail settings (Brevo)</h3>' + (cfg
+      ? '<label for="mk">Brevo API key</label><input id="mk" type="password" autocomplete="off" placeholder="' + (cfg.has_key ? 'saved (' + esc(cfg.key_hint) + ') · leave empty to keep it' : 'xkeysib-…') + '">' +
+        '<label for="ms" style="display:block;margin-top:10px">Sender e-mail (verified in Brevo)</label><input id="ms" type="email" autocomplete="off" value="' + esc(cfg.sender_email || '') + '" placeholder="you@gmail.com">' +
+        '<label for="mn" style="display:block;margin-top:10px">Sender name</label><input id="mn" autocomplete="off" value="' + esc(cfg.sender_name || ORG_NAME) + '">' +
+        '<label for="mr" style="display:block;margin-top:10px">Reply-to e-mail (optional)</label><input id="mr" type="email" autocomplete="off" value="' + esc(cfg.reply_to || ADMIN_MAIL) + '">' +
+        '<div class="row" style="margin-top:12px"><button class="btn y" id="msave">Save settings</button></div>'
+      : '<p class="sm">To send e-mail from any address, run <b>sql/10_upgrade_v48.sql</b> once in the Supabase SQL editor, then reload this page and save your Brevo key here. (Until then the Netlify function is used.)</p>') + '</div>' +
+    '<div class="row" style="margin:8px 0"><button class="btn y" id="tst">Send test e-mail to ' + esc(ADMIN_MAIL) + '</button><button class="btn alt" id="chk">Check e-mail setup</button></div><div id="chkout"></div>' +
+    '<h3>History</h3>' +
+    '<div class="row" style="margin:8px 0"><button class="btn alt" id="dsel">Delete selected</button><button class="btn alt" id="dall">Clear all</button></div>' +
+    '<div class="tw"><table class="stack"><tr><th><input type="checkbox" id="hk" aria-label="Select all"></th><th>Time</th><th>Sent to</th><th>Type</th><th>Subject</th><th>Message</th><th>Status</th></tr>' +
+    (hist.map(h => '<tr><td><input type="checkbox" class="hc" value="' + h.id + '"></td><td data-label="Time">' + new Date(h.created_at).toLocaleString() + '</td><td data-label="Sent to">' + esc(h.to_email) + '</td><td data-label="Type">' + esc(h.kind) +
+      '</td><td data-label="Subject">' + esc(h.subject) + '</td><td data-label="Message">' + (h.message ? '<details><summary>Show</summary><div style="white-space:pre-wrap;margin-top:6px">' + esc(h.message) + '</div></details>' : '') +
+      '</td><td data-label="Status"><span class="pill ' + (h.status == 'sent' ? 'ok' : 'no') + '">' + esc(h.status) + '</span>' + (h.error ? '<div class="sm">' + esc(h.error) + '</div>' : '') + '</td></tr>').join('') ||
+      '<tr><td colspan="7" class="sm">No emails yet</td></tr>') + '</table></div>';
+  $('#tst').onclick = e => run(async () => {
+    await mail([{ name: ORG_NAME, email: ADMIN_MAIL, regno: '' }], { subject: 'Test e-mail', message: 'This is a test message from the portal. If you can read it in your inbox, e-mail works.', heading: 'Test', kind: 'test', toLabel: ADMIN_MAIL + ' (test)' });
+    toast('Test sent. Check the inbox (and Spam) of ' + ADMIN_MAIL); await draw();
+  }, e.target);
+  if ($('#msave')) $('#msave').onclick = e => run(async () => {
+    await T('mail_settings_set', { p_key: $('#mk').value, p_email: $('#ms').value, p_name: $('#mn').value, p_reply: $('#mr').value });
+    mailModeReset(); toast('E-mail settings saved. Now press "Check e-mail setup".'); await draw();
+  }, e.target);
+  /* setup check for the database route */
+  async function checkDb(box, row) {
+    box.innerHTML = '<p class="sm">Checking… (asking Brevo)</p>';
+    const c = await T('mail_check'), cfg2 = await T('mail_settings_get');
+    let acc = null, snd = null;
+    if (c.has_key) { [acc, snd] = await Promise.all([mailDbResult(c.rid_account, 20).catch(er => ({ error: er.message })), mailDbResult(c.rid_senders, 20).catch(() => null)]); }
+    const accOk = acc && acc.status >= 200 && acc.status < 300, ab = (acc && acc.body) || {};
+    const list = snd && snd.status >= 200 && snd.status < 300 ? ((snd.body || {}).senders || []) : null;
+    const me = list && list.find(x => String(x.email).toLowerCase() == String(c.sender_email).toLowerCase());
+    box.innerHTML = '<div class="card"><h3>E-mail setup</h3><ul class="chk" style="list-style:none;padding:0;margin:8px 0">' +
+      row(true, 'Sending through your database (works on any address, no Netlify function needed)') +
+      row(c.has_key, 'Brevo API key is saved', 'Type the key in "E-mail settings" above and press Save settings.') +
+      row(!!c.sender_email, 'Sender e-mail is saved' + (c.sender_email ? ' (' + c.sender_email + ')' : ''), 'Type the verified sender e-mail in "E-mail settings" above and press Save settings.') +
+      (c.has_key ? row(accOk, accOk ? 'Brevo accepted the API key' + (ab.email ? ' (account ' + ab.email + ')' : '') : 'Brevo did not accept the API key', acc && acc.error ? 'Could not reach Brevo: ' + acc.error : (ab.message || (acc ? 'Brevo error ' + acc.status : '')) + (acc ? brevoHint(acc.status, ab.message) : '')) : '') +
+      (list ? row(!!(me && me.active), me ? (me.active ? 'Sender is verified and active in Brevo' : 'Sender found in Brevo but NOT active') : 'Sender is not in your Brevo senders list', 'Brevo > Senders, Domains & Dedicated IPs > add this exact address and verify it.') : '') +
+      '</ul><p class="sm">' + (c.has_key && c.sender_email && accOk && (!list || (me && me.active)) ? 'Everything is ready. Press "Send test e-mail".' : 'Fix the ❌ lines, then press this button again.') + '</p></div>';
+  }
+  /* "Check e-mail setup": is the function deployed, are the variables set, is the Brevo key / sender OK? */
+  $('#chk').onclick = e => run(async () => {
+    const box = $('#chkout'), row = (ok, t, fix) => '<li>' + (ok ? '✅ ' : '❌ ') + esc(t) + (!ok && fix ? '<div class="sm" style="margin:2px 0 0 24px">' + esc(fix) + '</div>' : '') + '</li>';
+    if (cfg && cfg.configured) return checkDb(box, row);
+    box.innerHTML = '<p class="sm">Checking…</p>';
+    let r;
+    try { r = await mailApi('check'); }
+    catch (er) { box.innerHTML = '<div class="card"><h3>E-mail setup</h3><ul class="chk" style="list-style:none;padding:0;margin:8px 0">' + row(false, er.missing ? 'E-mail function: not found on this site' : 'E-mail function: ' + er.message, er.missing ? er.message : '') + '</ul></div>'; return; }
+    const v = r.env || {}, a = r.account || {}, s = r.senderStatus;
+    box.innerHTML = '<div class="card"><h3>E-mail setup</h3><ul class="chk" style="list-style:none;padding:0;margin:8px 0">' +
+      row(true, 'E-mail function: deployed and reachable') +
+      row(v.BREVO_API_KEY, 'BREVO_API_KEY is set', 'Netlify > Project configuration > Environment variables > add BREVO_API_KEY, then deploy again.') +
+      row(v.BREVO_SENDER_EMAIL, 'BREVO_SENDER_EMAIL is set' + (r.sender ? ' (' + r.sender + ')' : ''), 'Add BREVO_SENDER_EMAIL (the verified sender in Brevo), then deploy again.') +
+      row(v.SB_URL && v.SB_KEY, 'Supabase URL and key found', 'Add SB_URL and SB_KEY in Netlify environment variables, then deploy again.') +
+      (v.BREVO_API_KEY ? row(a.ok, a.ok ? 'Brevo accepted the API key' + (a.email ? ' (account ' + a.email + ')' : '') + ((a.credits || []).length ? ' · ' + a.credits.join(', ') : '') : 'Brevo did not accept the API key', a.message) : '') +
+      (s ? row(s.ok, 'Sender ' + (r.sender || '') + ': ' + s.message) : '') +
+      '</ul><p class="sm">' + (v.BREVO_API_KEY && v.BREVO_SENDER_EMAIL && a.ok && (!s || s.ok) ? 'Everything is ready. Press "Send test e-mail".' : 'Fix the ❌ lines, deploy again, then press this button again.') + '</p></div>';
+  }, e.target);
+  $('#hk').onchange = e => document.querySelectorAll('.hc').forEach(c => c.checked = e.target.checked);
+  $('#dsel').onclick = e => run(async () => {
+    const ids = [...document.querySelectorAll('.hc:checked')].map(c => Number(c.value)); if (!ids.length) throw Error('Select rows first');
+    await T('email_log_del', { ids }); await draw();
+  }, e.target);
+  $('#dall').onclick = e => run(async () => { if (!confirm('Delete the whole history?')) return; await T('email_log_clear'); await draw(); }, e.target);
+}
+if (needLogin(['admin'])) { buildShell('email'); draw().catch(e => toast(e.message, 1)); }
+</script>
+</body>
+</html>

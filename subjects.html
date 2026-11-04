@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0d1b2a">
+  <meta name="robots" content="noindex">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="assets/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <title>Create Subject · Gaddam Venu</title>
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side"></aside>
+  <div class="scrim" id="scrim"></div>
+  <div class="content">
+    <header class="top" id="top"></header>
+    <main id="main"></main>
+    <div class="foot">© Gaddam Venu · Developed by Gaddam Venu</div>
+  </div>
+</div>
+<div id="modal" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script>
+const yr = new Date().getFullYear();
+let LIST = [];
+async function draw() {
+  const list = LIST = await T('subjects_list');
+  $('#main').innerHTML =
+    '<div class="pagehead"><h2>Create Subject</h2><p>One subject for each academic year, for example DS-2026-2027 and CN-2026-2027. You can create many subjects in the same year. Choose <b>Theory only</b>, <b>Theory + Lab</b>, <b>Mini Project</b> or <b>Major Project</b> (projects have Teams, Formats, Notices, Tasks and Work posted by Drive link): the Lab Programs and Lab Sheet sections appear only for Theory + Lab.</p></div>' +
+    '<div class="card"><div class="form2">' +
+      '<label class="fld">Subject name<input id="n" maxlength="12" autocapitalize="characters" autocomplete="off"></label>' +
+      '<label class="fld">Academic year starts in<input id="y" type="number" min="2000" max="2100" value="' + yr + '"></label>' +
+      '<label class="fld">Subject type<select id="k"><option value="theory">Theory only</option><option value="lab">Theory + Lab</option><option value="mini">Mini Project</option><option value="major">Major Project</option></select></label>' +
+      '<label class="fld">Full name (optional)<input id="f" maxlength="80" autocomplete="off"></label>' +
+      '<div class="fld"><label>Subject code</label><div class="codeprev" id="pv">–</div></div>' +
+    '</div><div class="row"><button class="btn y" id="add">Create subject</button></div></div>' +
+    '<h3 style="margin-top:22px">Created subjects (' + list.length + ')</h3>' +
+    '<div class="grid">' + (list.map(s =>
+      '<div class="card"><span class="pill">' + s.students + ' students</span><h3 style="margin:10px 0 2px;font-size:20px">' + esc(s.code) + '</h3>' +
+      '<p class="sm">' + esc(s.full_name || '') + '</p><p class="sm"><span class="pill ' + (s.kind == 'theory' ? '' : 'ok') + '">' + KINDS[s.kind] + '</span></p><p class="sm">' + (isProj(s.kind) ? s.teams + ' teams · ' + s.formats + ' formats · ' + s.work + ' work posts · ' + s.notices + ' notices' : s.materials + ' files · ' + s.videos + ' videos · ' + s.notices + ' notices' + (s.kind == 'lab' ? ' · ' + s.labs + ' labs' : '')) + '</p>' +
+      '<div class="row" style="margin:12px 0 0"><a class="btn" href="' + subUrl(s.code) + '">View</a><button class="btn alt" onclick="edit(\'' + s.id + '\')">Edit</button><button class="btn alt" onclick="del(\'' + s.id + '\',\'' + esc(s.code) + '\')">Delete</button></div></div>').join('') ||
+      '<p class="sm">No subjects yet.</p>') + '</div>';
+  const pv = () => { const n = $('#n').value.trim().toUpperCase().replace(/\s+/g, ''); const y = parseInt($('#y').value); $('#pv').textContent = n && y ? n + '-' + y + '-' + (y + 1) : '–'; };
+  $('#n').oninput = pv; $('#y').oninput = pv; pv();
+  $('#add').onclick = e => run(async () => {
+    await T('subject_add', { n: $('#n').value, y: parseInt($('#y').value), f: $('#f').value, k: $('#k').value });
+    toast('Subject created'); await draw(); loadSide('create');
+  }, e.target);
+}
+function edit(id) {
+  const s = LIST.find(x => x.id == id);
+  modal('<h3>Edit subject ' + esc(s.code) + '</h3>' +
+    '<label class="fld">Subject name<input id="x1" value="' + esc(s.name) + '" maxlength="12" autocapitalize="characters"></label>' +
+    '<label class="fld">Academic year starts in<input id="x2" type="number" min="2000" max="2100" value="' + s.year + '"></label>' +
+    '<label class="fld">Subject type<select id="x5"><option value="theory"' + (s.kind == 'theory' ? ' selected' : '') + '>Theory only</option><option value="lab"' + (s.kind == 'lab' ? ' selected' : '') + '>Theory + Lab</option><option value="mini"' + (s.kind == 'mini' ? ' selected' : '') + '>Mini Project</option><option value="major"' + (s.kind == 'major' ? ' selected' : '') + '>Major Project</option></select></label>' +
+    '<label class="fld">Full name (optional)<input id="x3" value="' + esc(s.full_name || '') + '" maxlength="80"></label>' +
+    '<div class="row" style="margin:0"><button class="btn y" id="x4">Save</button><button class="btn alt" onclick="closeModal()">Cancel</button></div>');
+  $('#x4').onclick = e => run(async () => {
+    const v = { n: $('#x1').value, y: parseInt($('#x2').value), f: $('#x3').value, k: $('#x5').value };     // read before the popup closes
+    await T('subject_edit', { sid: id, n: v.n, y: v.y, f: v.f, k: v.k });
+    closeModal(); toast('Subject updated'); await draw(); loadSide('create');
+  }, e.target);
+}
+function del(id, code) {
+  if (!confirm('Delete ' + code + ' with all its materials, notices and labs?\nStudents that are only in this subject are deleted too.')) return;
+  run(async () => { await T('subject_del', { sid: id }); toast('Deleted'); await draw(); loadSide('create'); });
+}
+if (needLogin(['admin'])) { buildShell('create'); draw().catch(e => toast(e.message, 1)); }
+</script>
+</body>
+</html>

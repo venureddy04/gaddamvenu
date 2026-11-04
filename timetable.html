@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0d1b2a">
+  <meta name="robots" content="noindex">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="assets/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <title>Timetable · Gaddam Venu</title>
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side"></aside>
+  <div class="scrim" id="scrim"></div>
+  <div class="content">
+    <header class="top" id="top"></header>
+    <main id="main"></main>
+    <div class="foot">© Gaddam Venu · Developed by Gaddam Venu</div>
+  </div>
+</div>
+<div id="modal" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="export.js"></script>
+<script>
+/* ==========================================================================
+   Timetable.  One timetable for each Year + Semester.  Monday to Saturday, 9 periods.
+   data = { periods: [[start,end] x 9], days: { Monday: [ {n: periods covered (merged), t: text, k: 't'|'l'|'b'|'o'} ... ], ... } }
+   The n of the cells of one day always add up to 9.  Merging = a bigger n (for example a Lab = 3 periods, 9.00 to 11.30).
+   ========================================================================== */
+const ADM = ROLE == 'admin';
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const STD = [['9.00', '9.50'], ['9.50', '10.40'], ['10.40', '11.30'], ['11.30', '12.20'], ['12.20', '1.10'], ['1.10', '2.00'], ['2.00', '2.50'], ['2.50', '3.40'], ['3.40', '4.30']];
+const NP = STD.length;
+const CELLKINDS = { t: 'Theory / class', l: 'Lab', b: 'Break / Lunch', o: 'Other (library, sports ...)' };
+let YR = 1, SM = 1, TT = null, LIST = [], SUBN = [], FIRST = false;
+/* phone view: students and the CR see one card per day (no sideways scrolling); 'Table view' brings the full table back */
+const MQ = window.matchMedia('(max-width:700px)');
+let VIEW = '';                                                              // '' = automatic, 'days' or 'table'
+const asDays = () => ROLE != 'admin' && (VIEW ? VIEW == 'days' : MQ.matches);
+
+const blankDay = () => Array.from({ length: NP }, () => ({ n: 1, t: '', k: 't' }));
+const blankTT = () => ({ periods: STD.map(p => p.slice()), days: Object.fromEntries(DAYS.map(d => [d, blankDay()])) });
+/* make sure the data from the database is complete and every day adds up to 9 periods */
+function fix(d) {
+  const o = blankTT(); if (!d || typeof d != 'object') return o;
+  if (Array.isArray(d.periods) && d.periods.length == NP) o.periods = d.periods.map((p, i) => [String(p && p[0] || STD[i][0]).slice(0, 12), String(p && p[1] || STD[i][1]).slice(0, 12)]);
+  DAYS.forEach(day => {
+    const a = d.days && Array.isArray(d.days[day]) ? d.days[day] : null; if (!a) return;
+    const out = []; let sum = 0;
+    a.forEach(c => { const n = Math.max(1, Math.min(NP - sum, parseInt(c && c.n) || 1)); if (sum >= NP) return; out.push({ n, t: String(c && c.t || '').slice(0, 120), k: CELLKINDS[c && c.k] ? c.k : 't' }); sum += n; });
+    while (sum < NP) { out.push({ n: 1, t: '', k: 't' }); sum++; }
+    o.days[day] = out;
+  });
+  return o;
+}
+const startOf = (segs, i) => segs.slice(0, i).reduce((s, c) => s + c.n, 0);
+const range = (P, a, n) => P[a][0] + ' to ' + P[a + n - 1][1];
+const cls = (YR2, SM2) => 'Year ' + YR2 + ' · Semester ' + SM2;
+
+async function load() {
+  const a = ADM || ROLE == 'cr' ? { yr: YR, sm: SM } : {};
+  const r = await T('timetable_get', a);
+  LIST = r.list || []; if (!ADM && ROLE != 'cr') { YR = r.year; SM = r.semester; }
+  TT = r.data && Object.keys(r.data).length ? fix(r.data) : null;
+  if (!TT && !FIRST && (ADM || ROLE == 'cr') && LIST.length) { FIRST = true; YR = LIST[0].year; SM = LIST[0].semester; return load(); }       // first visit: open a timetable that exists
+  FIRST = true; draw();
+}
+async function save() {
+  try { await T('timetable_save', { yr: YR, sm: SM, d: TT }); }
+  catch (er) { throw /timetable_|schema cache/i.test(er.message || '') ? Error('Run sql/02_functions.sql once in Supabase (see README), then try again.') : er; }
+  if (!LIST.some(x => x.year == YR && x.semester == SM)) LIST.push({ year: YR, semester: SM });
+}
+
+function draw() {
+  const sel = (id, n, cur, lbl) => '<select id="' + id + '" aria-label="' + lbl + '">' + Array.from({ length: n }, (_, i) => '<option value="' + (i + 1) + '"' + (i + 1 == cur ? ' selected' : '') + '>' + lbl + ' ' + (i + 1) + '</option>').join('') + '</select>';
+  const has = x => LIST.some(l => l.year == x.year && l.semester == x.semester);
+  let h = '<div class="pagehead"><h2>Timetable</h2><p>' + (ADM || ROLE == 'cr' ? 'Choose the year and semester.' : (SM ? cls(YR, SM) : 'Year ' + YR)) + (ADM ? ' Tap any cell to edit it, merge periods (for example a 3-period Lab) or clear it.' : '') + '</p></div>';
+  if (ADM || ROLE == 'cr') h += '<div class="row ttsel" style="margin:0 0 10px">' + sel('tyr', 4, YR, 'Year') + sel('tsm', 8, SM, 'Semester') +
+    (LIST.length ? '<span class="sm">Timetables made: ' + LIST.map(l => '<a class="ttl" onclick="pick(' + l.year + ',' + l.semester + ')">Y' + l.year + '·S' + l.semester + '</a>').join(' ') + '</span>' : '') + '</div>';
+  if (!TT) {
+    h += '<div class="card"><p>' + (ADM ? 'No timetable for <b>' + cls(YR, SM) + '</b> yet.' : 'No timetable has been published for <b>' + (SM ? cls(YR, SM) : 'Year ' + YR) + '</b> yet. Please check again later.') + '</p>' +
+      (ADM ? '<div class="row" style="margin:8px 0 0"><button class="btn y" id="tnew">Create timetable</button></div>' : '') + '</div>';
+    $('#main').innerHTML = h; bind(); return;
+  }
+  const P = TT.periods, today = new Date().getDay();                       // 1 = Monday ... 6 = Saturday
+  h += '<div class="ttbar">' + (ADM ? '<button class="btn alt" id="ttimes">⏱ Edit times</button>' : '') + '<button class="btn alt" id="tx">Excel</button><button class="btn alt" id="tp">Print / PDF</button>' + (!ADM && MQ.matches ? '<button class="btn alt" id="tv">' + (asDays() ? 'Table view' : 'Day view') + '</button>' : '') +
+    (ADM ? '<button class="btn alt" id="tdel" style="margin-left:auto">Delete timetable</button>' : '') + '</div>';
+  if (asDays()) { h += daysHTML(P, today) + legend(); $('#main').innerHTML = h; bind(); return; }
+  h += '<div class="tw tt"><table><thead><tr><th class="ttd">Day</th>' + P.map((p, i) => '<th><span class="ttn">Period ' + (i + 1) + '</span>' + esc(p[0]) + ' to ' + esc(p[1]) + '</th>').join('') + '</tr></thead><tbody>';
+  DAYS.forEach((day, di) => {
+    const segs = TT.days[day]; let at = 0;
+    h += '<tr' + (today == di + 1 ? ' class="ttnow"' : '') + '><th class="ttd">' + day + (ADM ? ' <a class="ttedit" onclick="dayModal(' + di + ')" title="Edit this whole day">⚙</a>' : '') + '</th>' +
+      segs.map((c, si) => { const a = at; at += c.n;
+        return '<td colspan="' + c.n + '" class="ttc k' + c.k + (c.t ? '' : ' empty') + '"' + (ADM ? ' onclick="cellModal(' + di + ',' + si + ')" tabindex="0" title="Edit"' : '') + '>' +
+          (c.t ? esc(c.t).replace(/\n/g, '<br>') : (ADM ? '+' : '')) + (c.n > 1 && c.t ? '<small>' + esc(range(P, a, c.n)) + '</small>' : '') + '</td>'; }).join('') + '</tr>';
+  });
+  h += '</tbody></table></div>' + legend();
+  $('#main').innerHTML = h; bind();
+}
+const legend = () => '<div class="clegend ttleg"><span class="lgi kt">Theory / class</span><span class="lgi kl">Lab</span><span class="lgi kb">Break / Lunch</span><span class="lgi ko">Other</span></div>';
+/* one card per day: period number, time and subject, in order */
+function daysHTML(P, today) {
+  return '<div class="ttdays">' + DAYS.map((day, di) => {
+    let at = 0; const now = today == di + 1;
+    const none = TT.days[day].every(c => !c.t);
+    const rows = none ? '<div class="tdr empty none"><span class="tdx">No classes entered for this day</span></div>' : TT.days[day].map(c => { const a = at; at += c.n;
+      return '<div class="tdr k' + c.k + (c.t ? '' : ' empty') + '"><span class="tdp">' + (c.n > 1 ? 'P' + (a + 1) + '–' + (a + c.n) : 'P' + (a + 1)) + '</span><span class="tdt">' + esc(range(P, a, c.n)) + '</span><span class="tdx">' + (c.t ? esc(c.t).replace(/\n/g, '<br>') : 'Free') + '</span></div>'; }).join('');
+    return '<section class="tdc' + (now ? ' now' : '') + '"><h3>' + day + (now ? '<em>Today</em>' : '') + '</h3>' + rows + '</section>';
+  }).join('') + '</div>';
+}
+function bind() {
+  if ($('#tyr')) { $('#tyr').onchange = () => pick(+$('#tyr').value, +$('#tsm').value); $('#tsm').onchange = () => pick(+$('#tyr').value, +$('#tsm').value); }
+  if ($('#tnew')) $('#tnew').onclick = e => run(async () => { TT = blankTT(); await save(); toast('Timetable created'); draw(); }, e.target);
+  if ($('#ttimes')) $('#ttimes').onclick = timesModal;
+  if ($('#tdel')) $('#tdel').onclick = e => run(async () => {
+    if (!confirm('Delete the whole timetable of ' + cls(YR, SM) + '?')) return;
+    await T('timetable_del', { yr: YR, sm: SM }); LIST = LIST.filter(l => !(l.year == YR && l.semester == SM)); TT = null; toast('Deleted'); draw();
+  }, e.target);
+  if ($('#tx')) $('#tx').onclick = e => run(downloadX, e.target);
+  if ($('#tv')) $('#tv').onclick = () => { VIEW = asDays() ? 'table' : 'days'; draw(); };
+  if ($('#tp')) $('#tp').onclick = () => { const v = VIEW; if (asDays()) { VIEW = 'table'; draw(); } print(); VIEW = v; draw(); };
+  document.querySelectorAll('.ttc[tabindex]').forEach(td => td.onkeydown = e => { if (e.key == 'Enter') td.click(); });
+}
+const pick = (y, s) => { YR = y; SM = s; run(load); };
+
+/* ---------- edit one cell: text, type, merge (periods covered) ---------- */
+function cellModal(di, si) {
+  const day = DAYS[di], segs = TT.days[day], c = segs[si], a = startOf(segs, si), P = TT.periods, room = NP - a;
+  modal('<h3>' + day + ' · ' + esc(range(P, a, c.n)) + '</h3>' +
+    (SUBN.length ? '<label class="fld">Choose a subject (optional)<select id="cs"><option value="">– type below –</option>' + SUBN.map(n => '<option>' + esc(n) + '</option>').join('') + '</select></label>' : '') +
+    '<label class="fld" style="margin-top:8px">Text in the cell<textarea id="ct" rows="3" maxlength="120" placeholder="e.g. DS   or   DS Lab – Batch 1&#10;OS Lab – Batch 2">' + esc(c.t) + '</textarea></label>' +
+    '<div class="form2" style="margin-top:8px"><label class="fld">Type<select id="ck">' + Object.keys(CELLKINDS).map(k => '<option value="' + k + '"' + (k == c.k ? ' selected' : '') + '>' + CELLKINDS[k] + '</option>').join('') + '</select></label>' +
+      '<label class="fld">Merge: periods covered<select id="cn">' + Array.from({ length: room }, (_, i) => '<option value="' + (i + 1) + '"' + (i + 1 == c.n ? ' selected' : '') + '>' + (i + 1) + (i ? ' (merged)' : '') + '</option>').join('') + '</select></label></div>' +
+    '<p class="sm" id="cr" style="margin:6px 0 0"></p>' +
+    '<div class="row" style="margin:12px 0 0"><button class="btn y" id="cv">Save</button><button class="btn alt" id="cc">Clear</button><button class="btn alt" onclick="closeModal()">Cancel</button></div>');
+  const info = () => { const n = +$('#cn').value; $('#cr').textContent = 'Time: ' + range(P, a, n) + (n > 1 ? ' · the next ' + (n - 1) + ' cell(s) of this row are merged into this one' : ''); };
+  $('#cn').onchange = info; info();
+  $('#ck').onchange = () => { if ($('#ck').value == 'l' && +$('#cn').value == 1 && room >= 3) { $('#cn').value = 3; info(); } };       // a lab normally takes 3 periods
+  if ($('#cs')) $('#cs').onchange = () => { if ($('#cs').value) $('#ct').value = $('#cs').value; };
+  const apply = (t, k, n) => run(async () => {
+    const old = JSON.stringify(TT);
+    const cur = TT.days[day][si]; cur.t = t; cur.k = k;
+    if (n > cur.n) {                                                           // merge: absorb the next cells
+      let need = n - cur.n, lost = 0; const after = TT.days[day].slice(si + 1), keep = [];
+      for (const x of after) { if (need <= 0) keep.push(x); else if (x.n <= need) { need -= x.n; if (x.t) lost++; } else { x.n -= need; need = 0; if (x.t) lost++; keep.push(x); } }
+      if (lost && !confirm(lost + ' filled cell(s) of this row will be replaced by the merged cell. Continue?')) return;
+      cur.n = n; TT.days[day] = TT.days[day].slice(0, si + 1).concat(keep);
+    } else if (n < cur.n) {                                                    // split: the freed periods become empty cells
+      const extra = Array.from({ length: cur.n - n }, () => ({ n: 1, t: '', k: 't' })); cur.n = n; TT.days[day].splice(si + 1, 0, ...extra);
+    }
+    try { await save(); } catch (e) { TT = JSON.parse(old); throw e; }
+    closeModal(); toast('Saved'); draw();
+  });
+  $('#cv').onclick = e => { const v = [$('#ct').value.trim(), $('#ck').value, +$('#cn').value]; run(async () => apply(...v), e.target); };
+  $('#cc').onclick = () => apply('', 't', c.n);
+}
+
+/* ---------- a whole day: copy from another day / clear ---------- */
+function dayModal(di) {
+  const day = DAYS[di];
+  modal('<h3>' + day + '</h3><label class="fld">Copy the whole day from<select id="dc"><option value="">– choose a day –</option>' + DAYS.filter(d => d != day).map(d => '<option>' + d + '</option>').join('') + '</select></label>' +
+    '<div class="row" style="margin:12px 0 0"><button class="btn y" id="dk">Copy</button><button class="btn alt" id="dx">Clear ' + day + '</button><button class="btn alt" onclick="closeModal()">Cancel</button></div>');
+  const set = (segs, msg) => run(async () => { const old = JSON.stringify(TT); TT.days[day] = segs; try { await save(); } catch (e) { TT = JSON.parse(old); throw e; } closeModal(); toast(msg); draw(); });
+  $('#dk').onclick = () => { const f = $('#dc').value; if (!f) return toast('Choose the day to copy from', 1); set(TT.days[f].map(c => ({ ...c })), day + ' copied from ' + f); };
+  $('#dx').onclick = () => { if (confirm('Clear all cells of ' + day + '?')) set(blankDay(), day + ' cleared'); };
+}
+
+/* ---------- the time of every period ---------- */
+function timesModal() {
+  const P = TT.periods;
+  modal('<h3>Period times</h3><p class="sm" style="margin:0 0 8px">Write the times as you like, for example 9.00 and 9.50.</p>' +
+    P.map((p, i) => '<div class="trow"><b>' + (i + 1) + '</b><input class="ts" maxlength="12" value="' + esc(p[0]) + '" aria-label="Period ' + (i + 1) + ' start"><span>to</span><input class="te" maxlength="12" value="' + esc(p[1]) + '" aria-label="Period ' + (i + 1) + ' end"></div>').join('') +
+    '<div class="row" style="margin:12px 0 0"><button class="btn y" id="tvs">Save times</button><button class="btn alt" id="trs">Standard times</button><button class="btn alt" onclick="closeModal()">Cancel</button></div>');
+  $('#trs').onclick = () => { document.querySelectorAll('.ts').forEach((x, i) => x.value = STD[i][0]); document.querySelectorAll('.te').forEach((x, i) => x.value = STD[i][1]); };
+  $('#tvs').onclick = e => run(async () => {
+    const s = [...document.querySelectorAll('.ts')].map(x => x.value.trim()), t = [...document.querySelectorAll('.te')].map(x => x.value.trim());
+    if (s.some(x => !x) || t.some(x => !x)) throw Error('Fill the start and end time of every period');
+    const old = JSON.stringify(TT); TT.periods = s.map((x, i) => [x, t[i]]);
+    try { await save(); } catch (er) { TT = JSON.parse(old); throw er; }
+    closeModal(); toast('Times saved'); draw();
+  }, e.target);
+}
+
+/* ---------- Excel (merged cells kept) ---------- */
+async function downloadX() {
+  await lib(XLSX_URL); const P = TT.periods, aoa = [['Day', ...P.map(p => p[0] + ' to ' + p[1])]], merges = [];
+  DAYS.forEach((day, di) => { const row = [day]; let col = 1;
+    TT.days[day].forEach(c => { row.push(c.t); for (let i = 1; i < c.n; i++) row.push(''); if (c.n > 1) merges.push({ s: { r: di + 1, c: col }, e: { r: di + 1, c: col + c.n - 1 } }); col += c.n; });
+    aoa.push(row); });
+  const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!merges'] = merges; ws['!cols'] = [{ wch: 12 }, ...P.map(() => ({ wch: 16 }))];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Timetable'); XLSX.writeFile(wb, 'timetable-year' + YR + '-sem' + SM + '.xlsx');
+}
+
+MQ.addEventListener('change', () => { if (TT && !VIEW) draw(); });
+
+if (needLogin(['admin', 'cr', 'student'])) {
+  buildShell('timetable');
+  if (ADM) T('subjects_list').then(l => { SUBN = [...new Set(l.map(s => s.name))]; }).catch(() => {});
+  load().catch(e => { $('#main').innerHTML = '<div class="pagehead"><h2>Timetable</h2></div><div class="card"><p>' + esc(/timetable_|schema cache/i.test(e.message) ? 'Run sql/02_functions.sql once in Supabase (see README), then press Refresh.' : e.message) + '</p></div>'; });
+}
+</script>
+</body>
+</html>

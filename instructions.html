@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b2a5b">
+  <link rel="icon" href="assets/icon-192.png">
+  <title>Marks table instructions · Gaddam Venu</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#eef2fb;color:#222;line-height:1.6;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+    .wrap{max-width:860px;margin:0 auto;background:#fff;min-height:100vh;box-shadow:0 0 16px #0b2a5b22}
+    header{background:linear-gradient(135deg,#0b2a5b,#0f4a9e);color:#fff;padding:16px}
+    header h1{margin:6px 0 2px;font-size:22px} header p{margin:0;color:#cfe3ff;font-size:14px}
+    .back{color:#ffcf8a;font-weight:700;text-decoration:none;font-size:14px;cursor:pointer;background:none;border:0;padding:0}
+    main{padding:8px 16px 28px}
+    h2{margin:24px 0 8px;font-size:18px;color:#0b2a5b;border-bottom:2px solid #ffb347;padding-bottom:4px}
+    code{background:#eef2ff;border:1px solid #d6dbe8;border-radius:6px;padding:2px 6px;font-size:14px;overflow-wrap:anywhere}
+    .ex{display:block;margin:6px 0;padding:8px 10px;white-space:pre-wrap}
+    table{width:100%;border-collapse:collapse;font-size:14px;margin:8px 0}
+    th,td{border:1px solid #d6dbe8;padding:7px 9px;text-align:left;vertical-align:top}
+    th{background:#f3f6ff}
+    .note{background:#fff9e6;border-left:4px solid #ffb347;padding:8px 12px;border-radius:6px;margin:10px 0}
+    .tw{overflow-x:auto}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <button class="back" id="bk">← Back</button>
+    <h1>Marks table instructions</h1>
+    <p>Theory Marks and Lab Marks · for the admin</p>
+  </header>
+  <main>
+
+    <div class="note"><b>In short:</b> add columns with <b>+ Add column</b> (at the end or at any place), type marks or <code>AB</code>, and make calculated columns with a formula such as <code>=ROUNDUP(SUM(C5:H5)*20/230,0)</code>. Lab Marks also has a description for every column and colors that the admin sets for each row and column.</div>
+
+    <h2>1. Entering marks</h2>
+    <ul>
+      <li><b>✎ on a column</b> (in the column heading): type or change that one column for all students in a list. <b>Fill all</b> puts the same mark for everyone, <b>Clear all</b> empties the column.</li>
+      <li><b>Edit on a row</b>: type the marks of one student for all columns.</li>
+      <li><b>⚙ on a column</b>: rename, change type, set the maximum marks, change the description (Lab Marks), or delete the column.</li>
+    </ul>
+
+    <h2>2. Adding a column at any place</h2>
+    <ul>
+      <li>Click <b>+ Add column</b>. In <b>Where to add this column</b> choose <b>At the end</b> (the default), <b>At the very beginning</b>, or <b>Before</b> any column. This works in both Theory Marks and Lab Marks.</li>
+      <li>The list <b>Column letters</b> in the window shows the letters the columns will have <i>after</i> your new column is added. Use those letters when you type the formula of the new column.</li>
+      <li>The marks already entered are never moved or lost; the new column is simply empty.</li>
+      <li><b>Formulas move with the columns</b> (like Excel): when you add a column in the middle, the column letters inside the <i>other</i> formulas are updated for you. Example: <code>=SUM(C5:E5)</code> becomes <code>=SUM(C5:F5)</code> when a column is added before D or E, stays the same when it is added before F (after the range), and <code>=SUM(D5:F5)</code> when it is added at the very beginning. Formulas that use <code>[Names]</code> never change.</li>
+      <li><b>A column added inside a range joins that range.</b> If the total is <code>=SUM(C5:E5)</code> and you add a column between C and E, the new column is counted in the total too. If you do not want that, add the column before the first or after the last column of the range, or write the total with names: <code>=SUM([Lab 1],[Lab 2],[Lab 3])</code>.</li>
+      <li>Moving or reordering an existing column is not possible: add the column where you want it, copy the marks, and delete the old one.</li>
+    </ul>
+
+    <h2>3. AB (absent)</h2>
+    <ul>
+      <li>Type <code>AB</code> (or <code>ab</code>) instead of a number for an absent student. It is shown as <b>AB</b> in the table, in PDF, Word and Excel.</li>
+      <li><b>Formulas ignore an AB cell</b> in that student's row, like an empty cell: <code>SUM</code> and <code>AVERAGE</code> skip it, and in <code>+ - * /</code> it counts as 0.</li>
+      <li>Example: Lab 1 = AB, Lab 2 = 10, Lab 3 = 20 → <code>=SUM(C5:E5)</code> gives 30 and <code>=AVERAGE([Lab 1],[Lab 2],[Lab 3])</code> gives 15.</li>
+      <li>If a student is AB in every marks column, the formula columns show 0 (or blank for AVERAGE).</li>
+    </ul>
+
+    <h2>4. Column letters</h2>
+    <p>Letters are shown above the table: <code>A</code> Reg No, <code>B</code> Name, <code>C</code> first column, <code>D</code> second column, and so on. The <b>row number is ignored</b>: <code>C5:H5</code> simply means "columns C to H of each student's own row". <code>$</code> signs (<code>$C$5</code>) are allowed and ignored.</p>
+    <div class="note"><b>Adding</b> a column in the middle updates the letters in the other formulas automatically (section 2). <b>Deleting</b> a column does not: the letters of the columns after it move one place left, so check formulas that use letters (like <code>C5:H5</code>). Formulas that use names in brackets follow the column automatically.</div>
+
+    <h2>5. Writing a formula</h2>
+    <p>Choose <b>Column type → Formula</b> and type it like Excel. A formula starts with <code>=</code> (maximum 300 characters). A formula column is calculated for every student and cannot be typed into. You can refer to other columns in three ways:</p>
+    <div class="tw"><table>
+      <tr><th>Way</th><th>Example</th><th>Meaning</th></tr>
+      <tr><td>By name</td><td><code>[Lab 1]</code></td><td>The column named Lab 1 (capital letters do not matter). Follows the column if it is renamed or moved by adding columns.</td></tr>
+      <tr><td>By letter</td><td><code>C5</code></td><td>The column with the letter C.</td></tr>
+      <tr><td>Range of letters</td><td><code>C5:H5</code></td><td>All columns from C to H.</td></tr>
+    </table></div>
+    <div class="tw"><table>
+      <tr><th>What you want</th><th>Type</th></tr>
+      <tr><td>Add two columns by name</td><td><code>=[AAT 1]+[AAT 2]</code></td></tr>
+      <tr><td>Total of a range of columns</td><td><code>=SUM(C5:H5)</code></td></tr>
+      <tr><td>Scale a total (out of 230 → 20, rounded up)</td><td><code>=ROUNDUP(SUM(C5:H5)*20/230,0)</code></td></tr>
+      <tr><td>Average of two columns</td><td><code>=AVERAGE(C2:D2)</code></td></tr>
+      <tr><td>Best of two columns</td><td><code>=MAX([Mid 1],[Mid 2])</code></td></tr>
+      <tr><td>Pass / Fail</td><td><code>=IF([Total]>=40,"Pass","Fail")</code></td></tr>
+      <tr><td>Percentage of a column that has a maximum (Lab 1 out of 25)</td><td><code>=ROUND([Lab 1]*100/OUTOF([Lab 1]),1)</code></td></tr>
+      <tr><td>Use another formula column</td><td><code>=[Total]*15/100</code></td></tr>
+      <tr><td>Pass only if marks in both columns are 10 or more</td><td><code>=IF(AND([Lab 1]>=10,[Lab 2]>=10),"Pass","Fail")</code></td></tr>
+      <tr><td>Count the columns in which marks are entered</td><td><code>=COUNT(C5:H5)</code></td></tr>
+    </table></div>
+    <p><b>Quick build:</b> in the formula box, choose SUM, AVG, MAX or MIN and tick the columns; the formula is typed for you.</p>
+    <p>Operators: <code>+ - * / ^ %</code> (<code>50%</code> means 0.5), brackets <code>( )</code>, and comparisons <code>= &lt;&gt; &lt; &gt; &lt;= &gt;=</code>. Text goes inside quotes: <code>"Pass"</code>. A formula may use another formula column, but not its own column.</p>
+
+    <h2>6. Functions you can use</h2>
+    <div class="tw"><table>
+      <tr><th>Function</th><th>What it does</th><th>Example</th></tr>
+      <tr><td><code>SUM</code></td><td>Adds the numbers (empty and AB are skipped)</td><td><code>=SUM(C5:H5)</code></td></tr>
+      <tr><td><code>AVERAGE</code> / <code>AVG</code></td><td>Average of the numbers (empty and AB are not counted)</td><td><code>=AVERAGE([Mid 1],[Mid 2])</code></td></tr>
+      <tr><td><code>MAX</code> / <code>MIN</code></td><td>Largest / smallest number</td><td><code>=MAX(C5:D5)</code></td></tr>
+      <tr><td><code>COUNT</code></td><td>How many numbers are entered</td><td><code>=COUNT(C5:H5)</code></td></tr>
+      <tr><td><code>ROUND</code></td><td>Rounds to the given decimals (0 if not given)</td><td><code>=ROUND([Total],1)</code></td></tr>
+      <tr><td><code>ROUNDUP</code> / <code>ROUNDDOWN</code></td><td>Rounds up / down</td><td><code>=ROUNDUP(12.1,0)</code> gives 13</td></tr>
+      <tr><td><code>INT</code></td><td>Whole number, rounded down</td><td><code>=INT(12.9)</code> gives 12</td></tr>
+      <tr><td><code>CEILING</code> / <code>FLOOR</code></td><td>Round up / down to a multiple</td><td><code>=CEILING(11.2,0.5)</code> gives 11.5</td></tr>
+      <tr><td><code>ABS</code> <code>MOD</code> <code>POWER</code> <code>SQRT</code></td><td>Absolute value, remainder, power, square root</td><td><code>=MOD(17,5)</code> gives 2</td></tr>
+      <tr><td><code>IF</code></td><td>If the test is true give the first value, else the second</td><td><code>=IF([Total]>=11,"Pass","Fail")</code></td></tr>
+      <tr><td><code>AND</code> <code>OR</code> <code>NOT</code> <code>TRUE</code> <code>FALSE</code></td><td>Combine tests</td><td><code>=IF(OR([Lab 1]>=20,[Lab 2]>=20),"A","B")</code></td></tr>
+      <tr><td><code>OUTOF</code></td><td>The maximum marks fixed for a column (section 7)</td><td><code>=OUTOF([Lab 1])</code></td></tr>
+    </table></div>
+
+    <h2>7. Maximum marks of a column</h2>
+    <ul>
+      <li>In ⚙ on a marks column, type <b>Maximum marks</b> (for example 25). A mark above it is refused. The heading shows <code>/25</code>.</li>
+      <li>Formulas can read it with <code>OUTOF([Column name])</code>.</li>
+      <li>Example, Lab 1 and Lab 2 are both out of 25 and the total is needed out of 15:<br>
+        <code class="ex">=SUM([Lab 1],[Lab 2])*15/(OUTOF([Lab 1])+OUTOF([Lab 2]))</code></li>
+      <li>In <b>Quick build</b>, choose SUM, tick the columns and fill <b>Scale to</b> (15 here): this formula is typed for you.</li>
+    </ul>
+
+    <h2>8. Theory Marks: AAT 1</h2>
+    <p><b>AAT 1</b> is built in and mandatory (🔒). It cannot be renamed, changed or deleted, but you can set its maximum marks. All other columns are created by the admin.</p>
+
+    <h2>9. Description of a column (Lab Marks)</h2>
+    <p>In the column window (⚙ or <b>+ Add column</b>) you can type a short <b>Description of this column</b> (up to 200 characters, for example <i>Record work of experiments 1 to 5</i>). It is shown under the column name in the table for everybody who can see the marks. Leave it empty to show nothing.</p>
+
+    <h2>10. Colors (Lab Marks)</h2>
+    <p>In <b>Lab Marks</b> nothing is colored by itself. There are two kinds of colors:</p>
+    <ul>
+      <li><b>Row colors (by hand)</b> – tap the round swatch at the start of a row (next to the Reg No) and pick a color, or use <b>🎨 Row colors</b> to set every row in one list (<b>Set all rows</b>, ✕, <b>Clear all</b>).</li>
+      <li><b>Column colors (by condition)</b> – press <b>🎨 Column colors</b> (or the 🎨 in a column heading), choose the column and add rules. Each rule is a condition and a color, for example <i>is less than 11</i> = red, <i>is less than 16</i> = blue, <i>is greater than or equal to 16</i> = green. The conditions are: less than, less than or equal, greater than, greater than or equal, equal to, between (both numbers included), is AB, and every cell. <b>Quick: red / blue / green</b> fills this example for you. <b>Copy these rules to all columns</b> uses the same rules for every column.</li>
+    </ul>
+    <p><b>🎨 Row conditions</b> – colors the <b>whole row</b> by the value of ONE column. Choose <i>The WHOLE ROW</i> in the list, choose the deciding column (for example Total) and add rules as above. A color you set by hand on a row wins over the row conditions.</p>
+    <div class="note"><b>Order matters:</b> a cell is checked against the rules from the top to the bottom and gets the color of the <b>first rule that fits</b>. So put the smaller limits first (11, then 16). A cell that fits no rule stays uncolored. The rules also work on formula columns such as Total, and are checked on the value shown in the table.</div>
+    <p>Where a row color and a column rule meet, the rule color shows. A small legend under the table tells everybody what each color means. The colors are saved for that subject's Lab Marks sheet, so every viewer (CR, and the student on his / her own row) sees the same colors.</p>
+
+    <h2>11. Download</h2>
+    <p>Excel keeps the formulas, PDF and Word get the calculated values and the row colors and the column rule colors (Excel has no colors). An AB cell is written as <b>AB</b>. The Excel formulas treat AB like the website does: it counts as 0 when you add, subtract or compare, and <code>SUM</code>, <code>AVERAGE</code>, <code>MAX</code>, <code>MIN</code> skip it.</p>
+
+    <h2>12. Who sees what</h2>
+    <p>The admin sees every student and can change marks. A <b>CR</b> sees every student's marks of the assigned subject, <b>view only</b>. A student sees only his / her own row. When you press <b>Publish</b>, the students get one e-mail saying the marks are published (the e-mail never contains marks).</p>
+    <h2>14. Lab batches (Lab Programs only)</h2>
+    <p>In a <b>Theory + Lab</b> subject the admin splits the students into <b>Batch 1</b> and <b>Batch 2</b>:</p>
+    <ul>
+      <li><b>Lab Programs → Create batches</b> (first step). Type or paste the Reg Nos of each batch and press <b>Apply the typed Reg Nos</b>, or choose the batch of every student in the list. <b>Split in half</b> puts the first half of the list in Batch 1 and the rest in Batch 2. Each batch has its own color. A student is in only one batch.</li>
+      <li><b>Posting a lab program:</b> first choose the batch, then the lab number, date, time, lab location, title, Drive link or code and what to do. Only the students of that batch see the program and only they get the e-mail. Choose <b>Both batches</b> to post the same program for Batch 1 and Batch 2 at once; one e-mail goes to the students of both batches. Programs posted before batches were created stay visible to everybody.</li>
+    </ul>
+
+    <h2>15. Import marks and Publish</h2>
+    <ul>
+      <li><b>⬆ Import</b>: paste from Excel (or choose an .xlsx / .xls / .csv file). Row 1 = headings; one heading must be <b>Reg No</b>, the other headings are column names. Press <b>Check</b>, read the summary, then <b>Import</b>. Name and formula columns are skipped, an empty cell keeps the old mark, <b>AB</b> is accepted, and a mark above the column maximum stops the import.</li>
+      <li><b>Publish to students</b>: a new sheet is hidden from the students (and the CR) until you publish it; they get a bell notification. <b>Unpublish</b> hides it again. You always see everything.</li>
+    </ul>
+
+    <h2>16. Timetable</h2>
+    <ul>
+      <li>Menu → <b>Timetable</b>. Choose the Year and Semester, press <b>Create timetable</b>. Rows = Monday to Saturday, columns = 9 periods (9.00 to 9.50 ... 3.40 to 4.30).</li>
+      <li>Tap a cell: type the text (or choose a subject), choose the type (Theory, Lab, Break, Other) and <b>Merge: periods covered</b>. A lab of 9.00 to 11.30 = 3 periods merged. Choose 1 again to split it.</li>
+      <li><b>⚙</b> next to a day: copy the whole day from another day, or clear it. <b>⏱ Edit times</b> changes the period times. <b>Excel</b> keeps the merged cells; <b>Print / PDF</b> prints the page.</li>
+      <li>A student sees the timetable of his / her own Year and Semester; the CR can open any timetable.</li>
+    </ul>
+
+    <h2>13. If a formula shows Err or is refused</h2>
+    <ul>
+      <li><b>Err in the table</b>: the formula cannot be calculated for that student. Common reasons: dividing by zero, a <code>[Name]</code> that no longer exists (the column was renamed or deleted), a letter that no longer points to the column you meant (after deleting a column), or a formula that uses its own column.</li>
+      <li><b>"The formula is not valid"</b>: check the brackets <code>( )</code> and <code>[ ]</code>, the commas between values, the quotes around text, and that every function name is spelled correctly.</li>
+      <li><b>A blank formula cell</b>: no mark is entered yet in that student's row.</li>
+      <li>Column names cannot contain <code>[</code> or <code>]</code> and must be different from each other.</li>
+    </ul>
+
+  </main>
+</div>
+<script>
+document.getElementById('bk').onclick = function () { if (history.length > 1 && !window.opener) history.back(); else window.close(); };
+</script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0d1b2a">
+  <meta name="robots" content="noindex">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="assets/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <title>Dashboard · Gaddam Venu</title>
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side"></aside>
+  <div class="scrim" id="scrim"></div>
+  <div class="content">
+    <header class="top" id="top"></header>
+    <main id="main"></main>
+    <div class="foot">© Gaddam Venu · Developed by Gaddam Venu</div>
+  </div>
+</div>
+<div id="modal" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script>
+/* ---- small calendar (dots = a notice / lab is dated that day) ---- */
+function calendar(el, events, show) {
+  const now = new Date(); let y = now.getFullYear(), m = now.getMonth(), sel = null;
+  const key = (a, b, c) => a + '-' + String(b + 1).padStart(2, '0') + '-' + String(c).padStart(2, '0');
+  const by = {}; events.forEach(e => { const k = String(e.date).slice(0, 10); (by[k] = by[k] || []).push(e); });
+  const tk = key(now.getFullYear(), now.getMonth(), now.getDate()); sel = tk;
+  function draw() {
+    const first = new Date(y, m, 1).getDay(), days = new Date(y, m + 1, 0).getDate();
+    let h = '<div class="cal-h"><button class="cal-b" id="cp" aria-label="Previous month">‹</button><b>' +
+      new Date(y, m, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) +
+      '</b><button class="cal-b" id="cn" aria-label="Next month">›</button></div><div class="cal-g">' +
+      ['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(x => '<i class="dow">' + x + '</i>').join('');
+    for (let i = 0; i < first; i++) h += '<i></i>';
+    for (let i = 1; i <= days; i++) { const k = key(y, m, i);
+      h += '<button class="cal-d' + (k == tk ? ' today' : '') + (by[k] ? ' has' : '') + (k == sel ? ' sel' : '') + '" data-k="' + k + '">' + i + '</button>'; }
+    el.innerHTML = h + '</div>';
+    $('#cp').onclick = () => { if (--m < 0) { m = 11; y--; } draw(); };
+    $('#cn').onclick = () => { if (++m > 11) { m = 0; y++; } draw(); };
+    el.querySelectorAll('.cal-d').forEach(b => b.onclick = () => { sel = b.dataset.k; draw(); });
+    show(sel, by[sel] || []);
+  }
+  draw();
+}
+
+function clock(el) {
+  const t = () => { const n = new Date();
+    el.innerHTML = '<b>' + n.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '</b><span>' +
+      n.toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }) + '</span>'; };
+  t(); setInterval(t, 1000);
+}
+
+if (needLogin()) (async () => {
+  buildShell('dash');
+  const [d, subs] = await Promise.all([T('dashboard'), SUBS]);
+  const sum = k => subs.reduce((a, s) => a + Number(s[k]), 0);
+  /* every card is a link: admin -> the page that manages it, student / CR -> the subject (or the subject list when there are several) */
+  const one = subs.length == 1 ? subs[0].code : null;
+  const toSub = tab => one ? subUrl(one, tab) : '#subs';
+  const card = (cls, icon, n, label, href) => '<a class="stat" href="' + href + '"><span class="bub ' + cls + '">' + ico(icon) + '</span><div><b>' + n + '</b><span>' + label + '</span></div></a>';
+  const st = d.stats;
+  const cards = ROLE == 'admin'
+    ? card('', 'layers', st.subjects, 'Subjects', page('subjects')) + card('g', 'users', st.students, 'Students', page('students')) + card('y', 'shield', st.crs, 'CRs', page('subjects')) +
+      card('', 'book', st.materials, 'Materials & marks', page('subjects')) + card('g', 'flask', st.labs, 'Lab programs', page('subjects')) + card('', 'layers', st.videos, 'Video lessons', page('subjects')) + card('y', 'bell', st.notices, 'Notices', page('subjects')) + card('', 'book', st.tasks, 'Tasks' + (st.to_check ? ' · ' + st.to_check + ' to check' : ''), page('subjects')) + card('g', 'users', st.teams, 'Project teams', page('subjects')) + card('', 'layers', st.work, 'Work posts', page('subjects')) + card('g', 'clip', st.exams, 'Exams', page('exams')) +
+      card(st.emails_failed ? 'r' : 'g', 'mail', st.emails_sent, 'Emails sent' + (st.emails_failed ? ' · ' + st.emails_failed + ' failed' : ''), page('email'))
+    : card('', 'layers', subs.length, 'My subjects', '#subs') + card('', 'book', sum('materials'), 'Materials & marks', toSub('materials')) + (subs.some(s => s.kind == 'lab') ? card('g', 'flask', sum('labs'), 'Lab programs', toSub('labs')) : '') + (subs.some(s => isProj(s.kind)) ? card('g', 'users', sum('teams'), 'Project teams', toSub('teams')) : '') +
+      card('', 'layers', sum('videos'), 'Video lessons', toSub('videos')) + card('y', 'bell', sum('notices'), 'Notices', toSub('notices')) + card('', 'book', sum('tasks'), 'Tasks', toSub('tasks'));
+
+  const today = new Date().toISOString().slice(0, 10);
+  const up = d.events.filter(e => String(e.date).slice(0, 10) >= today).slice(0, 8);
+
+  $('#main').innerHTML =
+    '<div class="pagehead"><h2>Dashboard</h2><p>Welcome, ' + esc(localStorage.ng_name) + '.</p></div>' +
+    '<div class="stats">' + cards + '</div>' +
+    '<div class="dgrid">' +
+      '<div class="card"><div id="clk" class="clock"></div><div id="cal"></div></div>' +
+      '<div class="stack-col"><div class="card"><h3 id="dayh">Today</h3><div id="dayl"></div></div>' +
+        '<div class="card"><h3>Coming up</h3>' + (up.map(e => evRow(e, true)).join('') || '<p class="sm">Nothing scheduled.</p>') + '</div></div>' +
+    '</div>' +
+    '<h3 id="subs" style="margin-top:26px">' + (ROLE == 'admin' ? 'All subjects' : 'My subjects') + '</h3>' +
+    '<div class="grid">' + (subs.map(s =>
+      '<a class="card click" href="' + subUrl(s.code) + '"><span class="pill">' + s.students + ' students</span>' +
+      '<h3 style="margin:10px 0 2px;font-size:20px">' + esc(s.code) + '</h3><p class="sm">' + esc(s.full_name || '') + '</p>' +
+      '<p class="sm">' + KINDS[s.kind] + '</p><p class="sm">' + (isProj(s.kind) ? s.teams + ' teams · ' + s.formats + ' formats · ' + s.work + ' work posts' : s.materials + ' files · ' + (s.kind == 'lab' ? s.labs + ' labs · ' : '') + s.videos + ' videos') + ' · ' + s.notices + ' notices · ' + s.tasks + ' tasks</p>' + '</a>').join('') ||
+      '<p class="sm">' + (ROLE == 'admin' ? 'No subjects yet. Use <b>Create Subject</b> in the menu.' : 'No subject has been assigned to you yet.') + '</p>') + '</div>';
+
+  clock($('#clk'));
+  calendar($('#cal'), d.events, (k, list) => {
+    $('#dayh').textContent = k == today ? 'Today' : fmtDate(k);
+    $('#dayl').innerHTML = list.map(e => evRow(e)).join('') || '<p class="sm">Nothing on this date.</p>';
+  });
+})().catch(e => toast(e.message, 1));
+
+function evRow(e, withDate) {
+  return '<div class="ev"><span class="pill ' + (e.kind == 'Lab' ? 'ok' : e.kind == 'Task' ? '' : 'wait') + '">' + e.kind + '</span> <b>' + esc(e.title) + '</b> <span class="sm">· ' + esc(e.code) + (withDate ? ' · ' + fmtDate(e.date) : '') + (e.time ? ' · ' + fmtTime(e.time) : '') + '</span></div>';
+}
+</script>
+</body>
+</html>

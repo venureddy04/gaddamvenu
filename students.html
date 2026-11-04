@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0d1b2a">
+  <meta name="robots" content="noindex">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="assets/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+    <title>Students · Gaddam Venu</title>
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side"></aside>
+  <div class="scrim" id="scrim"></div>
+  <div class="content">
+    <header class="top" id="top"></header>
+    <main id="main"></main>
+    <div class="foot">© Gaddam Venu · Developed by Gaddam Venu</div>
+  </div>
+</div>
+<div id="modal" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="export.js"></script>
+<script>
+let ALL = [], SUBL = [], q = '', fs = '', fy = '', fm = '', showPw = false;
+const LH = ['Gmail', 'Name', 'Password', 'Mobile', 'Reg No', 'Year', 'Semester', 'Parent Mobile', 'Subjects'];
+
+async function load() {
+  [ALL, SUBL] = await Promise.all([T('students_all'), SUBS]);
+  $('#main').innerHTML =
+    '<div class="pagehead"><h2>All Students</h2><p>Every student of every subject. Students sign in with their Gmail and password. View, edit or delete accounts here. A password chosen by the student is not shown to you; use Edit to set a new one.</p></div>' +
+    '<div class="row">' +
+      '<label class="fld">Search<input id="sq" autocomplete="off"></label>' +
+      '<label class="fld">Subject<select id="fs"><option value="">All subjects</option>' + SUBL.map(s => '<option value="' + s.id + '">' + esc(s.code) + '</option>').join('') + '</select></label>' +
+      '<label class="fld">Year<select id="fy"><option value="">All</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>' +
+      '<label class="fld">Semester<select id="fm"><option value="">All</option>' + [1, 2, 3, 4, 5, 6, 7, 8].map(v => '<option>' + v + '</option>').join('') + '</select></label>' +
+      '<button class="btn alt" id="tp">Show passwords</button><button class="btn alt" id="ds">Delete selected</button></div>' +
+    '<div class="row"><b>Download logins:</b><button class="btn alt" id="dx">Excel</button><button class="btn alt" id="dp">PDF</button><button class="btn alt" id="dw">Word</button><span class="sm" id="cnt"></span></div>' +
+    '<div id="tb"></div>';
+  $('#sq').oninput = e => { q = e.target.value; table(); };
+  $('#fs').onchange = e => { fs = e.target.value; table(); };
+  $('#fy').onchange = e => { fy = e.target.value; table(); };
+  $('#fm').onchange = e => { fm = e.target.value; table(); };
+  $('#tp').onclick = e => { showPw = !showPw; e.target.textContent = (showPw ? 'Hide' : 'Show') + ' passwords'; table(); };
+  $('#ds').onclick = e => run(async () => {
+    const ids = [...document.querySelectorAll('.sc:checked')].map(c => c.value); if (!ids.length) throw Error('Tick the students to delete first');
+    if (!confirm('Delete ' + ids.length + ' student account(s) permanently?\nThey are removed from every subject.')) return;
+    await T('student_delete', { ids }); toast('Deleted'); await load(); loadSide('students');
+  }, e.target);
+  const dl = kind => exportTable(kind, LH, rows().map(s => [s.email, s.name, s.pw, s.mobile || '', s.regno || '', String(s.year), String(s.semester || ''), s.parent_mobile || '', s.subjects.map(x => x.code).join(', ')]), 'Student logins', 'student-logins');
+  $('#dx').onclick = e => run(() => dl('xlsx'), e.target); $('#dp').onclick = e => run(() => dl('pdf'), e.target); $('#dw').onclick = e => run(() => dl('doc'), e.target);
+  table();
+}
+const rows = () => ALL.filter(s => (!q || ((s.regno || '') + ' ' + s.name + ' ' + s.email + ' ' + (s.mobile || '') + ' ' + (s.parent_mobile || '')).toLowerCase().includes(q.toLowerCase())) &&
+  (!fs || s.subjects.some(x => x.id == fs)) && (!fy || String(s.year) == fy) && (!fm || String(s.semester) == fm));
+
+function table() {
+  const list = rows();
+  $('#cnt').textContent = list.length + ' of ' + ALL.length + ' students';
+  $('#tb').innerHTML = '<div class="tw"><table class="stack"><tr><th><input type="checkbox" id="ck" aria-label="Select all"></th><th>Name</th><th>Gmail</th><th>Mobile</th><th>Reg No</th><th>Year</th><th>Sem</th><th>Parent Mobile</th><th>Subjects</th><th>Password</th><th>Actions</th></tr>' +
+    (list.map(s => '<tr><td><input type="checkbox" class="sc" value="' + s.id + '"></td><td data-label="Name"><span class="nm">' + avatar(s.name, s.photo, 'sm') + '<b>' + esc(s.name) + '</b></span></td><td data-label="Gmail">' + esc(s.email) + '</td>' +
+      '<td data-label="Mobile">' + esc(s.mobile || '–') + '</td><td data-label="Reg No">' + esc(s.regno || '–') + '</td><td data-label="Year">' + s.year + '</td><td data-label="Sem">' + (s.semester || '–') + '</td><td data-label="Parent Mobile">' + esc(s.parent_mobile || '–') + '</td><td data-label="Subjects">' + (s.subjects.map(x => '<span class="pill">' + esc(x.code) + '</span>').join(' ') || '<span class="sm">none</span>') +
+      '</td><td data-label="Password"><code>' + (showPw ? esc(s.pw) : '••••••••') + '</code></td>' +
+      '<td class="act"><a onclick="view(\'' + s.id + '\')">View</a><a onclick="edit(\'' + s.id + '\')">Edit</a><a onclick="del(\'' + s.id + '\')">Delete</a></td></tr>').join('') ||
+      '<tr><td colspan="11" class="sm">No students found.</td></tr>') + '</table></div>';
+  $('#ck').onchange = e => document.querySelectorAll('.sc').forEach(c => c.checked = e.target.checked);
+}
+const stu = i => ALL.find(s => s.id == i);
+
+function view(i) {
+  const s = stu(i);
+  modal('<div class="prof" style="margin-bottom:10px">' + avatar(s.name, s.photo, 'lg') + '<h3 style="margin:0">' + esc(s.name) + '</h3></div><table class="kv">' +
+    '<tr><th>Gmail</th><td>' + esc(s.email) + '</td></tr><tr><th>Reg No</th><td>' + esc(s.regno || '–') + '</td></tr><tr><th>Year</th><td>' + s.year + '</td></tr><tr><th>Semester</th><td>' + (s.semester || '–') + '</td></tr>' +
+    '<tr><th>Mobile</th><td>' + esc(s.mobile || '–') + '</td></tr><tr><th>Parent mobile</th><td>' + esc(s.parent_mobile || '–') + '</td></tr>' +
+    '<tr><th>Password</th><td><code>' + esc(s.pw) + '</code></td></tr>' +
+    '<tr><th>Subjects</th><td>' + (s.subjects.map(x => '<a class="pill" href="' + subUrl(x.code) + '">' + esc(x.code) + '</a>').join(' ') || 'none') + '</td></tr>' +
+    '<tr><th>Added</th><td>' + fmtDT(s.created_at) + ' by ' + esc(s.created_by || 'admin') + '</td></tr></table>' +
+    '<div class="row" style="margin:14px 0 0"><button class="btn" onclick="closeModal();edit(\'' + i + '\')">Edit</button><button class="btn alt" onclick="closeModal()">Close</button></div>');
+}
+function edit(i) {
+  const s = stu(i);
+  modal('<h3>Edit student</h3>' +
+    '<label class="fld"><span class="req">Name</span><input id="e2" value="' + esc(s.name) + '"></label>' +
+    '<label class="fld"><span class="req">Gmail</span><input id="e3" type="email" value="' + esc(s.email) + '"></label>' +
+    '<label class="fld"><span class="req">Student mobile number</span><input id="e9" type="tel" inputmode="numeric" maxlength="13" value="' + esc(s.mobile || '') + '"></label>' +
+    '<label class="fld">Reg No (optional)<input id="e1" value="' + esc(s.regno || '') + '" maxlength="15" autocapitalize="characters"></label>' +
+    '<label class="fld">Year<select id="e4">' + [1, 2, 3, 4].map(v => '<option' + (v == s.year ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label>' +
+    '<label class="fld">Semester<select id="e8">' + (s.semester ? [] : ['']).concat([1, 2, 3, 4, 5, 6, 7, 8]).map(v => '<option' + (v == s.semester ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label>' +
+    '<label class="fld">Parent mobile number (optional)<input id="e10" type="tel" inputmode="numeric" maxlength="13" value="' + esc(s.parent_mobile || '') + '"></label>' +
+    '<label class="fld"><span class="req">Password</span><input id="e5" value="' + esc(s.pw) + '"></label><p class="sm">At least 6 characters. If the student chose the password it is not shown; type a new one only to replace it.</p>' +
+    '<div class="row" style="margin:0"><button class="btn y" id="e7">Save</button><button class="btn alt" onclick="closeModal()">Cancel</button></div>');
+  $('#e7').onclick = e => run(async () => {
+    /* read every field BEFORE the popup is closed (closing removes the inputs) */
+    const v = { rg: $('#e1').value, n: $('#e2').value, e: $('#e3').value, y: parseInt($('#e4').value), sm: parseInt($('#e8').value), mb: $('#e9').value, pm: $('#e10').value, p: $('#e5').value.trim() };
+    await T('student_edit', { i, rg: v.rg, n: v.n, e: v.e, y: v.y, sm: v.sm, mb: v.mb, pm: v.pm });
+    if (v.p && v.p !== s.pw) await T('student_reset', { i, p: v.p });
+    closeModal(); toast('Saved'); await load();
+  }, e.target);
+}
+function del(i) {
+  const s = stu(i);
+  if (!confirm('Delete ' + s.name + ' (' + s.email + ') permanently?\nThe account is removed from every subject.')) return;
+  run(async () => { await T('student_delete', { ids: [i] }); toast('Deleted'); await load(); loadSide('students'); });
+}
+if (needLogin(['admin'])) { buildShell('students'); load().catch(e => toast(e.message, 1)); }
+</script>
+</body>
+</html>

@@ -1,0 +1,959 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script>/* clean URL  /subject/DS-2026-2027/materials : make every relative file (style.css, app.js ...) resolve from the site root */
+  (function () { var p = location.pathname, i = p.indexOf('/subject'); document.write('<base href="' + (i >= 0 ? p.slice(0, i + 1) : p.replace(/[^\/]*$/, '')) + '">'); })();</script>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0d1b2a">
+  <meta name="robots" content="noindex">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="assets/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <title>Subject · Gaddam Venu</title>
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side"></aside>
+  <div class="scrim" id="scrim"></div>
+  <div class="content">
+    <header class="top" id="top"></header>
+    <main id="main"></main>
+    <div class="foot">© Gaddam Venu · Developed by Gaddam Venu</div>
+  </div>
+</div>
+<div id="modal" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="shell.js"></script>
+<script src="export.js"></script>
+<script src="marks.js"></script>
+<script>
+/* URL:  /subject/DS-2026-2027/materials   (old links  subject.html?id=...#materials  still work and are rewritten to the clean form) */
+const URLSUB = (() => {
+  const m = location.pathname.match(/\/subject\/([^\/]+)(?:\/([^\/]+))?\/?$/);
+  const q = new URLSearchParams(location.search);                                   // local form:  subject.html?code=DS-2026-2027&tab=marks
+  return m ? { code: decodeURIComponent(m[1]).toUpperCase(), tab: m[2] || '' } : q.get('code') ? { code: q.get('code').toUpperCase(), tab: q.get('tab') || location.hash.slice(1) } : { id: q.get('id'), tab: location.hash.slice(1) };
+})();
+let sid = null;
+/* the 3 "Drive link" sections share one table (materials); the category decides where a link is shown */
+const SYL_CATS = ['Theory Syllabus','Lab Syllabus','Other Syllabus'];                              // Syllabus (Lab Syllabus only for Theory + Lab)
+const LP_CATS = ['Theory Lesson Plan','Lab Lesson Plan'];                         // Lesson Plan (Lab Lesson Plan only for Theory + Lab)
+const MAT_CATS = ['Unit 1','Unit 2','Unit 3','Unit 4','Unit 5','Unit 6'];        // Materials
+const MARK_CATS = ['Mid 1','Mid 2','AAT1','AAT2'];                                // Marks Share
+const LABSHEET_CATS = ['Lab Marks'];                                             // Lab Sheet (Theory + Lab only)
+const ADM = ROLE == 'admin', STU = ROLE == 'student';
+let C, ST = [], CRS = [], tab = '', showPw = false, q = '';
+/* ---------- v41: visible = true / false.  The admin right-clicks (phone: long-press) a TAB or a CARD, types true or false, Update.
+   false = students and CR do not get it at all (the database does not send it); the admin still sees it, dimmed with a "visible = false" label. ---------- */
+const hiddenTab = id => ((C && C.subject && C.subject.hidden_tabs) || []).includes(id);
+const vkAttr = (kind, o) => ADM ? ' data-vk="' + kind + '" data-vid="' + o.id + '" data-vis="' + (o.visible === false ? 'false' : 'true') + '"' : '';
+const vkCls = o => ADM && o.visible === false ? ' vhid' : '';
+const vkTab = id => ADM && id != 'students' && id != 'crs' ? ' data-vk="tab" data-vid="' + id + '" data-vis="' + (hiddenTab(id) ? 'false' : 'true') + '"' : '';
+/* ---------- lab batches (v30): Batch 1 / Batch 2 of a Theory + Lab subject.  BT = { colors, rows:[{student_id, regno, batch}] } or null (not available) ---------- */
+let BT = null, LBF = '';                                                      // LBF = batch filter on the Lab Programs list ('' = all, '1', '2')
+const BCOL = { 1: '#2563eb', 2: '#f59e0b' };                                  // default batch colors (blue, yellow)
+async function loadBatches() { BT = null; if (C.subject.kind != 'lab') return; try { BT = await T('batches_get', { sid }); } catch (e) { BT = null; } }
+const bCol = n => (BT && BT.colors && /^#[0-9a-f]{6}$/i.test(BT.colors[n] || '')) ? BT.colors[n] : BCOL[n];
+const bRegs = n => (BT ? BT.rows : []).filter(r => r.batch == n).map(r => r.regno);
+const bOfStudent = id => { const r = BT && BT.rows.find(x => x.student_id == id); return r ? r.batch : null; };
+const bPill = (n, txt) => n ? '<span class="bpill" style="--bc:' + bCol(n) + ';--bi:' + inkOn(bCol(n)) + '">' + (txt || 'Batch ' + n) + '</span>' : '<span class="bpill all">All students</span>';
+
+/* tabs depend on the subject type:  Theory only = Students, Materials, Video Lessons, Marks Share, Notices
+                                      Theory + Lab = the same + Lab Programs + Lab Sheet  (v20: Students, Syllabus, Lesson Plan come first) */
+const PJ = () => isProj(C.subject.kind);
+let PT = null, FM = [], WK = [];            // project: teams, formats, work posts
+let EL = [], LM = [], MT = [];               // v46: exam links, lab manuals, zoom meetings  (null = SQL file 08_upgrade_v46.sql not run yet)
+const MAT_ALL = MAT_CATS.concat(['Other']);      // v46: Materials = Unit 1-6 + Other (the admin types the name)
+const EXK = { lab: 'Lab exam', theory: 'Theory exam', login: 'Login IDs' };
+const tabs = () => (PJ() ? [['students','Students'],['teams','Teams'],['formats','Formats'],['notices','Notices'],['tasks','Tasks'],['work','Submit Work'],['exams','Exams'],['meetings','Zoom Meeting'],['crs','CR']] :
+    [['students','Students'],['syllabus','Syllabus'],['lessonplan','Lesson Plan'],['materials','Materials'],['videos','Video Lessons'],['marks','Theory Marks'],['notices','Notices'],['tasks','Tasks'],['work','Submit Work'],['exams','Exams'],
+    ['labs','Lab Programs'],['labmanual','Lab Manual'],['labsheet','Lab Marks'],['meetings','Zoom Meeting'],['crs','CR']])
+  .filter(t => (t[0] != 'labs' && t[0] != 'labsheet' && t[0] != 'labmanual') || C.subject.kind == 'lab')
+  .filter(t => STU ? t[0] != 'students' && t[0] != 'crs' : ADM || t[0] != 'crs')
+  .filter(t => ADM || !hiddenTab(t[0]));                                      // v41: tabs the admin set to visible = false
+
+async function load() {
+  C = await T('subject_content', { sid });
+  if (!STU) ST = await T('subject_students', { sid });
+  if (ADM) CRS = await T('cr_list', { sid });
+  await loadBatches();
+  const safe = (f, a) => T(f, a).catch(() => null);                      // null = the SQL file 08_upgrade_v46.sql has not been run yet
+  [EL, LM, MT] = await Promise.all([safe('examlinks_get', { sid }), C.subject.kind == 'lab' ? safe('labmanual_get', { sid }) : [], safe('meetings_get', { sid })]);
+  if (PJ()) [PT, FM, WK] = await Promise.all([T('teams_get', { sid }), T('formats_get', { sid }), T('work_get', { sid })]);
+  else WK = await T('work_get', { sid });
+  draw();
+}
+function draw() {
+  const inCats = c => C.materials.filter(m => c.includes(m.category)).length;
+  const n = { students: ST.length, syllabus: inCats(SYL_CATS), lessonplan: inCats(LP_CATS), materials: inCats(MAT_ALL), marks: '', labsheet: '', notices: C.notices.length, tasks: C.tasks || 0, teams: PT ? PT.teams.length : 0, exams: (EL || []).length, labmanual: (LM || []).length, meetings: (MT || []).length, formats: FM.length, work: WK.length, labs: C.labs.length, videos: C.videos.length, crs: CRS.length };
+  const TABS = tabs();
+  if (!tab || !TABS.some(t => t[0] == tab)) tab = URLSUB.tab || '';
+  if (!TABS.some(t => t[0] == tab)) tab = TABS[0][0];
+  $('#main').innerHTML =
+    '<div class="subhead"><h2>' + esc(C.subject.code) + ' <span class="pill ' + (C.subject.kind == 'lab' || PJ() ? 'ok' : '') + ' kind">' + KINDS[C.subject.kind] + '</span></h2><p>' + esc(C.subject.full_name || '') + (ROLE == 'cr' ? ' · you can add students here' : '') + '</p>' +
+      (ADM ? '<p class="sm vk-tip">Right-click a tab or a card (phone: press and hold) to set <b>visible = true / false</b> for the students.</p>' : '') + '</div>' +
+    '<div class="sub2"><div class="subbar">' + TABS.map(t => '<button class="' + (t[0] == tab ? 'on' : '') + (ADM && hiddenTab(t[0]) ? ' vhid' : '') + '"' + vkTab(t[0]) + ' onclick="go(\'' + t[0] + '\')">' + t[1] + (n[t[0]] === '' ? '' : ' <i>' + n[t[0]] + '</i>') + '</button>').join('') + '</div>' +
+    '<div id="pane"></div></div>';
+  V[tab]();
+  urlSync();
+}
+function urlSync() {                         // keep the address bar clean:  /subject/DS-2026-2027/materials
+  if (!/^https?:/.test(location.protocol)) return;
+  try { history.replaceState(null, '', subUrl(C.subject.code, tab)); document.title = C.subject.code + ' · Gaddam Venu'; } catch (e) {}
+}
+function go(t) { tab = t; draw(); }
+
+/* v41: the small window that opens on right-click / long-press (admin only) */
+let VKM = null, VKT = 0, VKS = '', VKL = null;       // VKT / VKS = when and how the menu was opened last (a phone press-and-hold must not open it twice)
+function vkClose() { if (VKM) { VKM.remove(); VKM = null; } }
+function vkOpen(el, x, y, src) {
+  vkClose(); VKT = Date.now(); VKS = src || 'mouse';
+  const kind = el.dataset.vk, id = el.dataset.vid, cur = el.dataset.vis != 'false';
+  const m = document.createElement('div'); m.className = 'vkmenu'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-label', 'Visible to students');
+  m.innerHTML = '<b>Visible to students?</b><span class="sm">' + (kind == 'tab' ? 'This tab' : 'This card') + ' is now <b>visible = ' + cur + '</b></span>' +
+    '<div class="vk-row"><input id="vkv" value="' + cur + '" maxlength="5" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Type true or false"><button type="button" class="btn y" id="vku">Update</button></div>' +
+    '<div class="vk-row"><button type="button" class="btn alt" data-v="true">true</button><button type="button" class="btn alt" data-v="false">false</button></div>' +
+    '<span class="sm">Type <b>true</b> (students see it) or <b>false</b> (only you see it), then Update.</span>';
+  document.body.append(m); VKM = m;
+  m.style.left = Math.max(8, Math.min(x, innerWidth - m.offsetWidth - 8)) + 'px'; m.style.top = Math.max(8, Math.min(y, innerHeight - m.offsetHeight - 8)) + 'px';
+  const inp = m.querySelector('#vkv'); inp.focus(); inp.select();
+  const apply = () => {
+    const v = inp.value.trim().toLowerCase();
+    if (['true', 'yes', 'y', '1', 'on'].includes(v)) return vkSave(kind, id, true);
+    if (['false', 'no', 'n', '0', 'off'].includes(v)) return vkSave(kind, id, false);
+    toast('Type true or false', 1);
+  };
+  m.querySelector('#vku').onclick = apply; inp.onkeydown = e => { if (e.key == 'Enter') apply(); };
+  m.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { inp.value = b.dataset.v; apply(); });
+}
+function vkSave(kind, id, vis) {
+  vkClose();
+  run(async () => {
+    if (kind == 'tab') await T('tab_visible_set', { sid, tb: id, vis }); else await T('item_visible_set', { kd: kind, i: id, vis });
+    toast((kind == 'tab' ? 'Tab' : 'Card') + ': visible = ' + vis); await load();
+  });
+}
+if (ADM) {
+  document.addEventListener('contextmenu', e => {
+    const el = e.target.closest && e.target.closest('[data-vk]'); if (!el) return;
+    e.preventDefault(); if (!(VKS == 'touch' && Date.now() - VKT < 700)) vkOpen(el, e.clientX, e.clientY, 'mouse');
+  });
+  document.addEventListener('touchstart', e => {                                  // phone / tablet: press and hold
+    const el = e.target.closest && e.target.closest('[data-vk]'); if (!el || e.touches.length != 1) return;
+    const t0 = e.touches[0]; clearTimeout(VKL);
+    VKL = setTimeout(() => { if (Date.now() - VKT > 700) vkOpen(el, t0.clientX, t0.clientY, 'touch'); }, 650);
+  }, { passive: true });
+  ['touchend', 'touchmove', 'touchcancel'].forEach(n => document.addEventListener(n, () => clearTimeout(VKL), { passive: true }));
+  document.addEventListener('mousedown', e => { if (VKM && Date.now() - VKT > 400 && !VKM.contains(e.target)) vkClose(); });
+  document.addEventListener('keydown', e => { if (e.key == 'Escape') vkClose(); });
+}
+
+/* e-mail: whenever the admin posts content (syllabus / lesson plan / material / notice / lab / video / task / format / exam / lab manual / meeting) -> the students of the subject get one e-mail. */
+const sel = (id, arr, cur) => '<select id="' + id + '">' + arr.map(v => '<option' + (v == cur ? ' selected' : '') + '>' + v + '</option>').join('') + '</select>';
+
+const isOther = c => c == 'Other' || c == 'Other Syllabus';                  // v47: "Other" = the admin types the name (Materials and Syllabus)
+function shareView(cats, L) {
+  if (C.subject.kind != 'lab') cats = cats.filter(c => !/^Lab /.test(c));   // Lab Syllabus / Lab Lesson Plan only for Theory + Lab
+  const by = {}, keys = [];                                                  // v46: a group = a category; for Other the group is the name the admin typed
+  cats.forEach(c => C.materials.filter(m => m.category == c).forEach(m => { const g = isOther(c) ? (m.label || 'Other') : c; if (!by[g]) { by[g] = []; keys.push(g); } by[g].push(m); }));
+  $('#pane').innerHTML =
+    (ADM ? '<div class="card"><h3>' + L.add + '</h3>' +
+      '<div class="mhead"><span>Category</span><span>Name</span><span>Drive link</span><span></span></div><div id="mrows"></div>' +
+      '<div class="row"><button class="btn alt" id="mr">+ Add another row</button></div>' +
+      '<div class="row"><button class="btn y" id="mp">' + L.post + '</button></div><p class="sm">When you post, every student of this subject gets one e-mail (information only, no links).</p></div>' : '') +
+    (keys.map(c => '<h3 style="margin-top:20px">' + esc(c) + '</h3><div class="card" style="margin-top:8px">' +
+      by[c].map(m => '<div class="li' + vkCls(m) + '"' + vkAttr('material', m) + '><div><b>' + esc(m.title) + '</b><span class="sm"> · ' + fmtDate(m.created_at) + '</span></div><div class="act">' +
+        '<button class="btn" onclick="viewDoc(\'' + m.id + '\')">View</button>' +
+        (ADM ? '<a class="btn alt" href="' + esc(m.link) + '" target="_blank" rel="noopener">Open in Drive</a>' : '') +
+        (ADM ? '<button class="btn alt" onclick="delItem(\'material_del\',\'' + m.id + '\')">Delete</button>' : '') + '</div></div>').join('') + '</div>').join('') ||
+      '<p class="sm" style="margin-top:16px">' + L.none + '</p>');
+  if (ADM) {
+    const addRow = () => { const d = document.createElement('div'); d.className = 'mrow';
+      d.innerHTML = '<select class="mc" aria-label="Category">' + cats.map(c => isOther(c) ? '<option value="' + c + '">Other (type a name)</option>' : '<option>' + c + '</option>').join('') + '</select>' +
+        '<input class="mt" aria-label="Name" placeholder="Name" autocomplete="off"><input class="ml" type="url" aria-label="Drive link" placeholder="https://drive.google.com/…" autocomplete="off">' +
+        '<button type="button" class="btn alt xs" aria-label="Remove row" onclick="this.parentNode.remove()">✕</button>' +
+        (L.other ? '<input class="mo" maxlength="60" aria-label="What is this? (for Other)" placeholder="Other: type the heading, e.g. Previous question papers" autocomplete="off" hidden>' : '');
+      const mc = d.querySelector('.mc'), mo = d.querySelector('.mo'); if (mo) mc.onchange = () => { mo.hidden = !isOther(mc.value); if (!mo.hidden) mo.focus(); };
+      $('#mrows').append(d); };
+    addRow(); $('#mr').onclick = addRow;
+    $('#mp').onclick = e => run(async () => {
+      const rows = [...document.querySelectorAll('.mrow')].map(r => ({ category: r.querySelector('.mc').value, title: r.querySelector('.mt').value, link: r.querySelector('.ml').value, label: (r.querySelector('.mo') || { value: '' }).value.trim() })).filter(r => r.link.trim());
+      if (!rows.length) throw Error('Paste at least one Drive link');
+      if (rows.some(r => isOther(r.category) && !r.label)) throw Error('For Other, type what it is (example: Previous question papers)');
+      await T('material_add', { sid, rw: rows });
+      toast(L.done); await load();
+      const msg = rows.map(r => '\u2022 ' + (isOther(r.category) ? r.label : r.category) + (r.title.trim() ? ' \u2013 ' + r.title.trim() : '')).join('\n') + '\n\nLog in and open the ' + L.tab + ' tab to view it.';
+      toast(L.done + await mailPosted(sid, C.subject.code + ' \u2013 ' + L.what.toLowerCase() + ' posted', msg, L.head));
+    }, e.target);
+  }
+}
+
+const V = {
+/* ===================== STUDENTS (admin + CR) ===================== */
+students() {
+  $('#pane').innerHTML =
+    '<div class="card"><h3>Add student</h3><div class="form2">' +
+      '<label class="fld"><span class="req">Name</span><input id="nm" maxlength="80" autocomplete="off"></label>' +
+      '<label class="fld"><span class="req">Gmail (the student logs in with this)</span><input id="ea" type="email" autocomplete="off" placeholder="name@gmail.com"></label>' +
+      '<label class="fld"><span class="req">Password (6+ characters)</span><input id="pwd" autocomplete="off"></label>' +
+      '<label class="fld"><span class="req">Student mobile number</span><input id="mb" type="tel" inputmode="numeric" maxlength="13" autocomplete="off" placeholder="10 digits"></label>' +
+      '<label class="fld">Reg No (optional)<input id="rg" maxlength="15" autocapitalize="characters" autocomplete="off" placeholder="5-15 letters/digits"></label>' +
+      '<label class="fld">Parent mobile number (optional)<input id="pm" type="tel" inputmode="numeric" maxlength="13" autocomplete="off" placeholder="10 digits"></label>' +
+      '<label class="fld">Year<select id="yr"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>' +
+      '<label class="fld">Semester<select id="sm">' + [1, 2, 3, 4, 5, 6, 7, 8].map(v => '<option>' + v + '</option>').join('') + '</select></label>' +
+    '</div><p class="sm">Required: name, Gmail, password and the student\'s mobile number. The student signs in with the <b>Gmail and password</b> (not the Reg No) and can change the password later.</p>' +
+    '<div class="row"><button class="btn y" id="add">Add student</button></div>' +
+    '<details open><summary>Upload students from Excel</summary><p class="sm">Excel (.xlsx / .xls) or .csv with the columns <b>Email, Name, Password, Mobile, Year, Semester</b> (required) and <b>RegNo, ParentMobile</b> (optional).</p>' +
+      '<div class="row"><input type="file" id="xf" accept=".xlsx,.xls,.csv" aria-label="Excel file"><button class="btn" id="xi">Upload and add</button><button class="btn alt" id="xt">Download Excel template</button></div></details>' +
+    '<details><summary>Add many students by typing</summary><p class="sm">One student per line:  Email, Name, Password, Mobile, Year, Semester, RegNo, ParentMobile   (RegNo and ParentMobile are optional)</p>' +
+      '<textarea id="bulk"></textarea><div class="row"><button class="btn" id="addm">Add all</button></div></details></div>' +
+    '<div class="row"><label class="fld">Search<input id="sq" autocomplete="off"></label>' +
+      (ADM ? '<button class="btn alt" id="tp">Show passwords</button>' : '') + '</div>' +
+    (ADM ? '<div class="row"><b>Download logins:</b><button class="btn alt" id="dx">Excel</button><button class="btn alt" id="dp">PDF</button><button class="btn alt" id="dw">Word</button></div>' : '') +
+    '<div id="stt"></div>';
+  stTable();
+  $('#sq').oninput = e => { q = e.target.value; stTable(); };
+  $('#add').onclick = e => run(async () => {
+    await addStudents([{ regno: $('#rg').value, name: $('#nm').value, email: $('#ea').value, year: $('#yr').value, semester: $('#sm').value, mobile: $('#mb').value, parent_mobile: $('#pm').value, password: $('#pwd').value }]);
+  }, e.target);
+  $('#addm').onclick = e => run(async () => {
+    const rows = $('#bulk').value.split('\n').map(l => l.trim()).filter(Boolean).map(l => { const c = l.split(/[,\t]/).map(x => x.trim());
+      return { email: c[0], name: c[1], password: c[2], mobile: c[3], year: c[4], semester: c[5], regno: c[6] || '', parent_mobile: c[7] || '' }; });
+    if (!rows.length) throw Error('Enter at least one line');
+    await addStudents(rows);
+  }, e.target);
+  $('#xt').onclick = e => run(async () => { await lib(XLSX_URL); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Email', 'Name', 'Password', 'Mobile', 'Year', 'Semester', 'RegNo', 'ParentMobile']]), 'Students'); XLSX.writeFile(wb, 'students-template.xlsx'); }, e.target);
+  $('#xi').onclick = e => run(async () => {
+    const f = $('#xf').files[0]; if (!f) throw Error('Choose the Excel file first');
+    await lib(XLSX_URL);
+    const wb = XLSX.read(await f.arrayBuffer()), rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+    const key = h => String(h).toLowerCase().replace(/[^a-z]/g, ''), pick = (r, names) => { for (const h in r) if (names.includes(key(h))) return String(r[h]).trim(); return ''; };
+    const list = rows.map(r => ({ regno: pick(r, ['regno', 'registrationno', 'registerno', 'rollno', 'id']), name: pick(r, ['name', 'studentname']), email: pick(r, ['email', 'mail', 'emailid', 'gmail', 'gmailid']),
+      year: pick(r, ['year', 'studyyear']), semester: pick(r, ['semester', 'sem', 'semno']),
+      mobile: pick(r, ['mobile', 'mobileno', 'mobilenumber', 'phone', 'phoneno', 'studentmobile', 'studentmobileno']),
+      parent_mobile: pick(r, ['parentmobile', 'parentmobileno', 'parentmobilenumber', 'parentsmobile', 'parentphone', 'parentphoneno', 'guardianmobile']), password: pick(r, ['password', 'pw', 'pass']) })).filter(r => r.regno || r.name || r.email);
+    if (!list.length) throw Error('No student rows found. Columns needed: Email, Name, Password, Mobile, Year, Semester (RegNo and ParentMobile optional)');
+    if (!confirm('Add ' + list.length + ' student(s) from this file?')) return;
+    await addStudents(list);
+  }, e.target);
+  if (ADM) {
+    $('#dx').onclick = e => run(() => dl('xlsx'), e.target); $('#dp').onclick = e => run(() => dl('pdf'), e.target); $('#dw').onclick = e => run(() => dl('doc'), e.target);
+    $('#tp').onclick = e => { showPw = !showPw; e.target.textContent = (showPw ? 'Hide' : 'Show') + ' passwords'; stTable(); };
+  }
+},
+
+/* ===================== SYLLABUS / LESSON PLAN / MATERIALS / MARKS SHARE / LAB SHEET (Drive links, same table, different categories) ===================== */
+syllabus() { shareView(SYL_CATS, { other: true, add: 'Add syllabus (Google Drive link)' + (C.subject.kind == 'lab' ? ' – Theory Syllabus, Lab Syllabus or Other' : ' – or choose Other and type a name'), post: 'Post syllabus', none: 'No syllabus posted yet.', what: 'New syllabus', head: 'Syllabus', tab: 'Syllabus', done: 'Syllabus posted' }); },
+lessonplan() { shareView(LP_CATS, { add: 'Add lesson plan (Google Drive link)' + (C.subject.kind == 'lab' ? ' – Theory Lesson Plan and Lab Lesson Plan' : ''), post: 'Post lesson plan', none: 'No lesson plan posted yet.', what: 'New lesson plan', head: 'Lesson Plan', tab: 'Lesson Plan', done: 'Lesson plan posted' }); },
+materials() { shareView(MAT_ALL, { other: true, add: 'Add materials (Google Drive links)', post: 'Post materials', none: 'No materials posted yet.', what: 'New study material', head: 'Materials', tab: 'Materials', done: 'Materials posted' }); },
+marks() { run(() => marksView('theory')); },
+labsheet() { run(() => marksView('lab')); },
+
+/* ===================== NOTICES ===================== */
+notices() {
+  $('#pane').innerHTML =
+    (ADM ? '<div class="card"><h3>Add notice</h3><div class="form2">' +
+      '<label class="fld">Title<input id="nt" maxlength="120" autocomplete="off"></label>' +
+      '<label class="fld">Date<input id="nd" type="date"></label></div>' +
+      '<div class="fld" style="margin-top:14px"><label id="nilbl">What to do</label>' + rteBar() + '<div id="ni" class="rte-ed rich" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="nilbl"></div></div>' +
+      '<div class="fld" style="margin-top:14px"><label>E-mail this notice to</label><div class="row" style="margin:4px 0 8px"><label class="chk"><input type="radio" name="nto" value="all" checked> All students</label><label class="chk"><input type="radio" name="nto" value="sel"> Specific students</label></div>' +
+        '<div id="nsel" hidden><div class="row" style="margin:0 0 6px"><input id="nsq" placeholder="Search name / Gmail" style="max-width:260px"><button type="button" class="btn alt" id="nsa">Select all</button><button type="button" class="btn alt" id="nsn">Clear</button></div>' +
+        '<div class="pick">' + (ST.map(s => '<label class="chk nsr" data-q="' + esc((ident(s) + ' ' + s.name).toLowerCase()) + '"><input type="checkbox" class="nsc" value="' + esc(ident(s)) + '"' + (/^\S+@\S+\.\S+$/.test(s.email || '') ? '' : ' disabled') + '><b>' + esc(ident(s)) + '</b> ' + esc(s.name) + (/^\S+@\S+\.\S+$/.test(s.email || '') ? '' : ' <small>(no e-mail)</small>') + '</label>').join('') || '<p class="sm">No students in this subject yet.</p>') + '</div>' +
+        '<p class="sm">The notice is posted on the website as usual; only the e-mail goes to the students you tick.</p></div></div>' +
+      '<div class="row"><button class="btn y" id="np">Post notice</button></div></div>' : '') +
+    (C.notices.map(n => '<div class="card item' + vkCls(n) + '"' + vkAttr('notice', n) + '><div class="li"><div><h3 style="margin:0">' + esc(n.title) + '</h3>' +
+      (n.due_date ? '<span class="pill wait">' + fmtDate(n.due_date) + '</span> ' : '') + '<span class="sm">Posted ' + fmtDT(n.created_at) + '</span></div>' +
+      (ADM ? '<div class="act"><button class="btn alt" onclick="delItem(\'notice_del\',\'' + n.id + '\')">Delete</button></div>' : '') + '</div>' +
+      (n.message ? '<div class="rich" style="margin-top:10px">' + richHtml(n.message) + '</div>' : '') + '</div>').join('') || '<p class="sm" style="margin-top:16px">No notices yet.</p>');
+  if (ADM) {
+    rteInit();
+    document.querySelectorAll('input[name=nto]').forEach(r => r.onchange = () => $('#nsel').hidden = document.querySelector('input[name=nto]:checked').value != 'sel');
+    $('#nsq').oninput = () => { const v = $('#nsq').value.trim().toLowerCase(); document.querySelectorAll('.nsr').forEach(l => l.hidden = v && !l.dataset.q.includes(v)); };
+    $('#nsa').onclick = () => document.querySelectorAll('.nsr:not([hidden]) .nsc:not(:disabled)').forEach(c => c.checked = true);
+    $('#nsn').onclick = () => document.querySelectorAll('.nsc').forEach(c => c.checked = false);
+    $('#np').onclick = e => run(async () => {
+      const t = $('#nt').value.trim(), d = $('#nd').value, ed = $('#ni'), html = cleanHtml(ed.innerHTML), plain = ed.textContent.trim();
+      const only = document.querySelector('input[name=nto]:checked').value == 'sel' ? [...document.querySelectorAll('.nsc:checked')].map(c => c.value) : null;   // null = all students
+      if (only && !only.length) throw Error('Tick at least one student for the e-mail (or choose All students)');
+      const m = plain ? html : '';
+      await T('notice_add', { sid, ti: t, msg: m, d });
+      toast('Notice posted'); await load();
+      const body = (d ? '<p><b>Date:</b> ' + esc(fmtDate(d)) + '</p>' : '') + m;
+      toast('Notice posted' + await mailPosted(sid, C.subject.code + ' – new notice: ' + t, (d ? 'Date: ' + fmtDate(d) + '\n\n' : '') + htmlText(m), 'Notice', body, only));
+    }, $('#np'));
+  }
+},
+
+/* ===================== TASKS (admin posts in notice format; students submit ONE Google Drive link, viewed only inside the site) ===================== */
+tasks() { run(() => tasksView()); },
+exams() { examsPane(); },
+labmanual() { labManualPane(); },
+meetings() { meetingsPane(); },
+teams() { teamsView(); },
+formats() { formatsView(); },
+work() { workView(); },
+
+/* ===================== LAB PROGRAMS (Drive link and/or text, posted for ONE batch) ===================== */
+labs() {
+  const nums = Array.from({ length: 50 }, (_, i) => i + 1), n1 = bRegs(1).length, n2 = bRegs(2).length, made = n1 + n2 > 0;
+  const mine = STU && BT && BT.rows.length ? BT.rows[0].batch : null;                     // a student's own batch
+  const list = C.labs.map((l, ix) => ({ l, ix })).filter(o => !LBF || !o.l.batch || o.l.batch == LBF);     // old programs without a batch are for everybody, so they stay in every filter
+  const bcard = !ADM ? '' : '<div class="card' + (made ? '' : ' bstep') + '"><h3 style="margin:0 0 6px">Lab batches</h3>' +
+    (BT === null ? '<p class="sm" style="color:#b4202f"><b>Run the new SQL file <code>16_lab_batches.sql</code> once in Supabase</b> (see README), then press Refresh.</p>' :
+      '<div class="row" style="margin:6px 0 10px">' + bPill(1, 'Batch 1 · ' + n1 + ' student(s)') + bPill(2, 'Batch 2 · ' + n2 + ' student(s)') +
+        (made && ST.length - n1 - n2 > 0 ? '<span class="sm">' + (ST.length - n1 - n2) + ' student(s) are in no batch</span>' : '') + '</div>' +
+      '<p class="sm" style="margin:0 0 10px">' + (made ? 'A lab program is posted for one batch: only that batch sees it and only that batch gets the e-mail.' : '<b>Step 1:</b> create the batches. Choose which students are in Batch 1 and which are in Batch 2 (by Reg No). Then post the lab programs.') + '</p>' +
+      '<div class="row" style="margin:0"><button class="btn ' + (made ? 'alt' : 'y') + '" id="bmk">' + (made ? '✎ Edit batches' : '+ Create batches') + '</button></div>') + '</div>';
+  const form = !ADM || BT === null || !made ? '' : '<div class="card"><h3>Add lab program</h3>' +
+    '<div class="fld"><label id="lbl">Batch</label><div class="bsel" role="radiogroup" aria-labelledby="lbl">' + [1, 2].map(b => { const c = bRegs(b).length;
+      return '<label class="bopt' + (c ? '' : ' off') + '" style="--bc:' + bCol(b) + ';--bi:' + inkOn(bCol(b)) + '"><input type="radio" name="lbt" value="' + b + '"' + (c ? '' : ' disabled') + '><span><b>Batch ' + b + '</b><small>' + c + ' student(s)</small></span></label>'; }).join('') +
+      '<label class="bopt both' + (n1 && n2 ? '' : ' off') + '" style="--bc:#0b2a5b;--bi:#ffffff"><input type="radio" name="lbt" value="both"' + (n1 && n2 ? '' : ' disabled') + '><span><b>Both batches</b><small>' + (n1 + n2) + ' student(s)</small></span></label></div></div>' +
+    '<div class="form2" style="margin-top:14px">' +
+      '<label class="fld">Lab number<select id="lx">' + nums.map(v => '<option value="' + v + '">Lab ' + v + '</option>').join('') + '<option value="other">Other number…</option></select>' +
+        '<input id="lxo" type="number" min="1" max="999" inputmode="numeric" placeholder="Type the lab number" hidden></label>' +
+      '<label class="fld">Date<input id="ld" type="date"></label>' +
+      '<label class="fld">Time<select id="lslot">' + LAB_SLOTS.map(v => '<option>' + esc(v) + '</option>').join('') + '</select></label>' +
+      '<label class="fld">Lab location<input id="lloc" maxlength="80" autocomplete="off" placeholder="e.g. CSE Lab 2, Block A"></label></div>' +
+    '<label class="fld" style="margin-top:14px">Title (optional)<input id="lt" maxlength="120" autocomplete="off" placeholder="e.g. Linked list operations"></label>' +
+    '<p class="sm" style="margin:14px 0 6px"><b>Give the program as a Drive link, as code, or both (at least one).</b> The link and code are shown on the website only; the e-mail to the batch has only the lab details.</p><div class="form2">' +
+    '<label class="fld">Drive link<input id="ll" type="url" autocomplete="off"></label></div>' +
+    '<label class="fld" style="margin-top:14px">Program (code)<textarea id="lpg" class="mono" rows="8" spellcheck="false"></textarea></label>' +
+    '<label class="fld" style="margin-top:14px">What to do (assignment)<textarea id="lk"></textarea></label>' +
+    '<div class="row"><button class="btn y" id="lp">Post lab program</button><span class="sm" id="lpn"></span></div></div>';
+  const filt = ADM || ROLE == 'cr' ? (made ? '<div class="bfilter"><b>Show:</b>' + [['', 'All'], ['1', 'Batch 1'], ['2', 'Batch 2']].map(f => '<button type="button" class="bf' + (LBF == f[0] ? ' on' : '') + '"' + (f[0] ? ' style="--bc:' + bCol(f[0]) + ';--bi:' + inkOn(bCol(f[0])) + '"' : '') + ' data-b="' + f[0] + '">' + f[1] + '</button>').join('') + '</div>' : '') :
+    (mine ? '<p style="margin:0 0 12px">You are in ' + bPill(mine) + '</p>' : '');
+  $('#pane').innerHTML = bcard + form + filt +
+    (list.map(({ l, ix }) => '<div class="card item lcard' + vkCls(l) + '"' + vkAttr('lab', l) + ' style="--bc:' + (l.batch ? bCol(l.batch) : '#cbd5e1') + '"><div class="li"><div><h3 style="margin:0">' + (l.exp_no ? 'Lab ' + esc(String(l.exp_no).replace(/^(lab|exp)\s*/i, '')) + ' – ' : '') + esc(l.title) + '</h3>' +
+      (STU && mine ? '' : bPill(l.batch) + ' ') + (l.lab_date ? '<span class="pill ok">' + fmtDate(l.lab_date) + '</span> ' : '') + (l.slot ? '<span class="pill">' + esc(l.slot) + '</span> ' : (l.lab_time ? '<span class="pill">' + fmtTime(l.lab_time) + '</span> ' : '')) +
+      (l.location ? '<span class="pill wait">' + esc(l.location) + '</span> ' : '') + '<span class="sm">Posted ' + fmtDT(l.created_at) + '</span></div><div class="act">' +
+      (l.link ? '<a class="btn" href="' + esc(l.link) + '" target="_blank" rel="noopener">Open Drive link</a>' : '') +
+      (l.program ? '<button class="btn alt" onclick="copyProg(' + ix + ')">Copy program</button>' : '') +
+      (ADM ? '<button class="btn alt" onclick="delItem(\'lab_del\',\'' + l.id + '\')">Delete</button>' : '') + '</div></div>' +
+      (l.task ? '<p class="pre"><b>What to do:</b>\n' + esc(l.task) + '</p>' : '') +
+      (l.program ? '<pre class="code">' + esc(l.program) + '</pre>' : '') + '</div>').join('') || '<p class="sm" style="margin-top:16px">No lab programs yet.</p>');
+  document.querySelectorAll('.bf').forEach(b => b.onclick = () => { LBF = b.dataset.b; V.labs(); });
+  if (!ADM) return;
+  if ($('#bmk')) $('#bmk').onclick = () => batchModal();
+  if (!$('#lp')) return;
+  const first = document.querySelector('input[name=lbt]:not(:disabled)'); if (first) first.checked = true;
+  const note = () => { const b = document.querySelector('input[name=lbt]:checked'); $('#lpn').textContent = !b ? '' : b.value == 'both' ? 'The e-mail goes to all ' + (n1 + n2) + ' student(s) of Batch 1 and Batch 2.' : 'The e-mail goes only to the ' + bRegs(b.value).length + ' student(s) of Batch ' + b.value + '.'; };
+  document.querySelectorAll('input[name=lbt]').forEach(r => r.onchange = note); note();
+  $('#lx').onchange = e => { $('#lxo').hidden = e.target.value != 'other'; };
+  $('#lp').onclick = e => run(async () => {
+    const bt = (document.querySelector('input[name=lbt]:checked') || {}).value;
+    const x = $('#lx').value == 'other' ? $('#lxo').value.trim() : $('#lx').value, t = $('#lt').value.trim(), d = $('#ld').value, slot = $('#lslot').value, loc = $('#lloc').value.trim(),
+      k = $('#lk').value.trim(), l = $('#ll').value.trim(), pg = $('#lpg').value;
+    if (!bt) throw Error('Choose the batch (Batch 1, Batch 2 or Both batches)');
+    if (!/^\d{1,3}$/.test(x)) throw Error('Choose or type the lab number');
+    if (!d) throw Error('Choose the lab date');
+    const bts = bt == 'both' ? [1, 2] : [Number(bt)], who = bt == 'both' ? 'Batch 1 and Batch 2' : 'Batch ' + bt;       // 'Both batches' = the same program is posted once for each batch
+    try { for (const b of bts) await T('lab_add', { sid, ex: x, ti: t, task: k, prog: pg, d, slot, loc, lk: l, bt: b }); }
+    catch (er) { throw /lab_add|schema cache/i.test(er.message || '') ? Error('Run the new SQL file 16_lab_batches.sql once in Supabase (see README), then try again.') : er; }
+    await load();
+    const msg = who + '\nLab ' + x + (t ? ' – ' + t : '') + '\nDate: ' + fmtDate(d) + '\nTime: ' + slot + (loc ? '\nLab location: ' + loc : '') + (k ? '\n\nWhat to do:\n' + k : '');
+    toast('Lab program posted for ' + who + await mailPosted(sid, C.subject.code + ' – ' + who + ' – Lab ' + x + ' on ' + fmtDate(d), msg, 'Lab Program', undefined, bts.flatMap(bRegs), who));
+  }, $('#lp'));
+},
+
+/* ===================== VIDEO LESSONS (links) ===================== */
+videos() {
+  $('#pane').innerHTML =
+    (ADM ? '<div class="card"><h3>Add video lessons (YouTube / Drive / any link)</h3>' +
+      '<div id="vrows"></div>' +
+      '<div class="row"><button class="btn alt" id="vr">+ Add another row</button></div>' +
+      '<div class=\"row\"><button class=\"btn y\" id=\"vp\">Post videos</button></div></div>' : '') +
+    (C.videos.length ? '<div class="card" style="margin-top:16px">' + C.videos.map(v => '<div class="li' + vkCls(v) + '"' + vkAttr('video', v) + '><div><b>' + esc(v.title) + '</b><span class="sm"> · ' + fmtDT(v.created_at) + '</span></div><div class="act">' +
+      '<a class="btn" href="' + esc(v.link) + '" target="_blank" rel="noopener">Watch</a>' +
+      (ADM ? '<button class="btn alt" onclick="delItem(\'video_del\',\'' + v.id + '\')">Delete</button>' : '') + '</div></div>').join('') + '</div>' : '<p class="sm" style="margin-top:16px">No video lessons yet.</p>');
+  if (ADM) {
+    const addRow = () => { const d = document.createElement('div'); d.className = 'mrow vrow';
+      d.innerHTML = '<label class="vf"><span>Lesson title</span><input class="vt" autocomplete="off" placeholder="e.g. Unit 1 – Introduction"></label><label class="vf"><span>Video link</span><input class="vl" type="url" autocomplete="off" placeholder="https://"></label>' +
+        '<button type="button" class="btn alt xs" aria-label="Remove row" onclick="this.parentNode.remove()">✕</button>'; $('#vrows').append(d); };
+    addRow(); $('#vr').onclick = addRow;
+    $('#vp').onclick = e => run(async () => {
+      const rows = [...document.querySelectorAll('.vrow')].map(r => ({ title: r.querySelector('.vt').value, link: r.querySelector('.vl').value })).filter(r => r.link.trim());
+      if (!rows.length) throw Error('Paste at least one video link');
+      await T('video_add', { sid, rw: rows });
+      toast('Videos posted'); await load();
+      const msg = rows.map(r => '• ' + (r.title.trim() || 'Lesson')).join('\n');
+      toast('Videos posted' + await mailPosted(sid, C.subject.code + ' – new video lesson posted', msg, 'Video Lessons'));
+    }, e.target);
+  }
+},
+
+/* ===================== CR (admin only) ===================== */
+crs() {
+  $('#pane').innerHTML =
+    '<div class="card"><h3>Add CR for this subject</h3><p class="sm">The CR can see everything in this subject and can add students. Nothing else. The CR cannot change the password: only you (admin) can set or reset it. Empty password = the CR ID.</p><div class="form2">' +
+      '<label class="fld">CR ID (example: CSE-CR)<input id="cu" maxlength="20" autocapitalize="characters" autocomplete="off"></label>' +
+      '<label class="fld">Name<input id="cn" maxlength="80" autocomplete="off"></label>' +
+      '<label class="fld">Email (optional)<input id="ce" type="email" autocomplete="off"></label>' +
+      '<label class="fld">Password (empty = same as CR ID)<input id="cp" autocomplete="off"></label></div>' +
+    '<div class="row"><button class="btn y" id="ca">Add CR</button></div></div>' +
+    '<div class="tw"><table class="stack"><tr><th>CR ID</th><th>Name</th><th>Email</th><th>Password</th><th></th></tr>' +
+    (CRS.map(c => '<tr><td data-label="CR ID"><b>' + esc(c.username) + '</b></td><td data-label="Name"><span class="nm">' + avatar(c.name || c.username, c.photo, 'sm') + esc(c.name || '') + '</span></td><td data-label="Email">' + esc(c.email || '') + '</td>' +
+      '<td data-label="Password"><code>' + (showPw ? esc(c.pw) : '••••••••') + '</code></td><td class="act"><a onclick="showPw=!showPw;V.crs()">' + (showPw ? 'Hide' : 'View') + '</a><a onclick="editCr(\'' + c.id + '\')">Edit</a><a onclick="resetCr(\'' + c.id + '\')">Reset</a><a onclick="rmCr(\'' + c.id + '\')">Remove</a></td></tr>').join('') ||
+      '<tr><td colspan="5" class="sm">No CR yet.</td></tr>') + '</table></div>';
+  $('#ca').onclick = e => run(async () => {
+    const r = await T('cr_add', { sid, u: $('#cu').value, n: $('#cn').value, e: $('#ce').value, p: $('#cp').value });
+    toast(r.existing ? 'CR already existed - added to this subject' : 'CR added'); await load();
+  }, e.target);
+}
+};
+
+/* ---------- actions ---------- */
+async function addStudents(rows) {
+  const r = await T('students_add', { sid, rw: rows }), msg = [];
+  if (r.added.length) msg.push(r.added.length + ' added');
+  if (r.existing.length) msg.push(r.existing.length + ' already had an account and were added to this subject');
+  if (r.skipped.length) msg.push(r.skipped.length + ' skipped: ' + r.skipped.map(x => (x.email || '?') + ' (' + x.why + ')').join('; '));
+  toast(msg.join(' · '), !r.added.length && !r.existing.length);
+  await load();
+}
+const ident = s => s.regno || s.email;
+function stTable() {
+  const list = ST.filter(s => !q || ((s.regno || '') + ' ' + s.name + ' ' + s.email + ' ' + (s.mobile || '') + ' ' + (s.parent_mobile || '')).toLowerCase().includes(q.toLowerCase()));
+  $('#stt').innerHTML = '<div class="tw"><table class="stack"><tr><th>Name</th><th>Gmail</th><th>Mobile</th><th>Reg No</th><th>Year</th><th>Sem</th><th>Parent Mobile</th>' + (ADM ? '<th>Password</th><th></th>' : '') + '</tr>' +
+    (list.map(s => '<tr><td data-label="Name"><span class="nm">' + avatar(s.name, s.photo, 'sm') + '<b>' + esc(s.name) + '</b></span></td><td data-label="Gmail">' + esc(s.email) + '</td><td data-label="Mobile">' + esc(s.mobile || '–') + '</td>' +
+      '<td data-label="Reg No">' + esc(s.regno || '–') + '</td><td data-label="Year">' + s.year + '</td>' +
+      '<td data-label="Sem">' + (s.semester || '–') + '</td><td data-label="Parent Mobile">' + esc(s.parent_mobile || '–') + '</td>' +
+      (ADM ? '<td data-label="Password"><code>' + (showPw ? esc(s.pw) : '••••••••') + '</code></td>' +
+        '<td class="act"><a onclick="editSt(\'' + s.id + '\')">Edit</a><a onclick="resetSt(\'' + s.id + '\')">Reset</a><a onclick="rmSt(\'' + s.id + '\')">Remove</a></td>' : '') + '</tr>').join('') ||
+      '<tr><td colspan="9" class="sm">No students yet.</td></tr>') + '</table></div>';
+}
+/* ---------- download the logins of this subject: Excel / PDF / Word ---------- */
+const LH = ['Gmail', 'Name', 'Password', 'Mobile', 'Reg No', 'Year', 'Semester', 'Parent Mobile'];
+const loginRows = () => { if (!ST.length) throw Error('No students in this subject yet'); return ST.map(s => [s.email, s.name, s.pw, s.mobile || '', s.regno || '', String(s.year), String(s.semester || ''), s.parent_mobile || '']); };
+const dl = kind => exportTable(kind, LH, loginRows(), C.subject.code + ' – student logins', C.subject.code + '-logins');
+const stu = i => ST.find(s => s.id == i);
+
+function editSt(i) {
+  const s = stu(i);
+  modal('<h3>Edit student</h3>' +
+    '<label class="fld"><span class="req">Name</span><input id="e2" value="' + esc(s.name) + '"></label>' +
+    '<label class="fld"><span class="req">Gmail</span><input id="e3" type="email" value="' + esc(s.email) + '"></label>' +
+    '<label class="fld"><span class="req">Student mobile number</span><input id="e9" type="tel" inputmode="numeric" maxlength="13" value="' + esc(s.mobile || '') + '"></label>' +
+    '<label class="fld">Reg No (optional)<input id="e1" value="' + esc(s.regno || '') + '" maxlength="15" autocapitalize="characters"></label>' +
+    '<label class="fld">Year' + sel('e4', [1, 2, 3, 4], s.year) + '</label>' +
+    '<label class="fld">Semester' + sel('e8', (s.semester ? [] : ['']).concat([1, 2, 3, 4, 5, 6, 7, 8]), s.semester) + '</label>' +
+    '<label class="fld">Parent mobile number (optional)<input id="e10" type="tel" inputmode="numeric" maxlength="13" value="' + esc(s.parent_mobile || '') + '"></label>' +
+    '<label class="fld"><span class="req">Password</span><input id="e5" value="' + esc(s.pw) + '"></label><p class="sm">At least 6 characters. If the student chose the password, it is not shown; type a new one only to replace it.</p>' +
+    '<div class="row" style="margin:0"><button class="btn y" id="e7">Save</button><button class="btn alt" onclick="closeModal()">Cancel</button></div>');
+  $('#e7').onclick = e => run(async () => {
+    /* read every field BEFORE the popup is closed (closing removes the inputs) */
+    const v = { rg: $('#e1').value, n: $('#e2').value, e: $('#e3').value, y: parseInt($('#e4').value), sm: parseInt($('#e8').value), mb: $('#e9').value, pm: $('#e10').value, p: $('#e5').value.trim() };
+    await T('student_edit', { i, rg: v.rg, n: v.n, e: v.e, y: v.y, sm: v.sm, mb: v.mb, pm: v.pm });
+    if (v.p && v.p !== s.pw) await T('student_reset', { i, p: v.p });
+    closeModal(); toast('Saved'); await load();
+  }, e.target);
+}
+function resetSt(i) {
+  const s = stu(i), mob = s.mobile;
+  if (!mob) return toast('This student has no mobile number saved. Use Edit and type a new password.', 1);
+  if (!confirm('Reset the password of ' + s.name + ' to the mobile number (' + mob + ')?')) return;
+  run(async () => { await T('student_reset', { i, p: mob }); toast('Password is now ' + mob); await load(); });
+}
+function rmSt(i) {
+  const s = stu(i);
+  if (!confirm('Remove ' + s.name + ' (' + s.email + ') from ' + C.subject.code + '?\nThe account is deleted if the student is in no other subject.')) return;
+  run(async () => { await T('student_remove', { sid, ids: [i] }); toast('Removed'); await load(); });
+}
+function editCr(i) {
+  const c = CRS.find(x => x.id == i);
+  modal('<h3>Edit CR</h3>' +
+    '<label class="fld">CR ID<input id="c1" value="' + esc(c.username) + '" maxlength="20" autocapitalize="characters"></label>' +
+    '<label class="fld">Name<input id="c2" value="' + esc(c.name || '') + '" maxlength="80"></label>' +
+    '<label class="fld">Email (optional)<input id="c3" type="email" value="' + esc(c.email || '') + '"></label>' +
+    '<label class="fld">Password<input id="c4" value="' + esc(c.pw) + '"></label>' +
+    '<div class="row" style="margin:0"><button class="btn y" id="c5">Save</button><button class="btn alt" onclick="closeModal()">Cancel</button></div>');
+  $('#c5').onclick = e => run(async () => {
+    /* read every field BEFORE the popup is closed (closing removes the inputs) */
+    const v = { u: $('#c1').value, n: $('#c2').value, e: $('#c3').value, p: $('#c4').value.trim() };
+    await T('cr_edit', { i, u: v.u, n: v.n, e: v.e, p: v.p });
+    closeModal(); toast('CR saved'); await load();
+  }, e.target);
+}
+function resetCr(i) {
+  const c = CRS.find(x => x.id == i);
+  if (!confirm('Reset the password of ' + c.username + ' to the CR ID (' + c.username + ')?')) return;
+  run(async () => { await T('cr_reset', { i, p: c.username }); toast('Password is now ' + c.username); await load(); });
+}
+function rmCr(i) {
+  if (!confirm('Remove this CR from ' + C.subject.code + '? The CR login is deleted if no other subject is assigned.')) return;
+  run(async () => { await T('cr_remove', { sid, i }); toast('Removed'); await load(); });
+}
+/* ---------- protected viewer: PDF / Word / PPT / Excel Drive links open INSIDE the site (no download, no print, no copy) ---------- */
+function embedUrl(u) {
+  let m = u.match(/docs\.google\.com\/(document|presentation|spreadsheets)\/d\/([\w-]+)/);
+  if (m) return 'https://docs.google.com/' + m[1] + '/d/' + m[2] + '/preview';
+  m = u.match(/drive\.google\.com\/file\/d\/([\w-]+)/) || u.match(/drive\.google\.com\/(?:open|uc)\?(?:[^#]*&)?id=([\w-]+)/);
+  return m ? 'https://drive.google.com/file/d/' + m[1] + '/preview' : '';
+}
+let _vk = null;
+function viewDoc(id) {
+  const m = C.materials.find(x => x.id == id); if (!m) return;
+  const src = embedUrl(m.link);
+  if (!src) { window.open(m.link, '_blank', 'noopener'); return; }          // not a Google Drive link: opens normally
+  openViewer(m.title, src);
+}
+/* a submitted task: the Drive link is fetched only to be shown in the viewer; it is never printed on the page */
+function tkView(subId) {
+  run(async () => {
+    const r = await T('task_link', { i: subId }), src = embedUrl(r.link);
+    if (!src) throw Error('This file cannot be shown here. Ask the student to share the file link again.');
+    openViewer(r.title, src);
+  });
+}
+function openViewer(title, src) {  const who = (localStorage.ng_name || ROLE || '') + ' · ' + C.subject.code,
+    wm = "url(\"data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="360" height="200"><text x="20" y="110" font-family="Arial" font-size="18" fill="#0a1b45" fill-opacity="0.13" transform="rotate(-24 180 100)">' + who.replace(/[<>&"']/g, '') + '</text></svg>') + "\")";
+  closeViewer();
+  const v = document.createElement('div'); v.id = 'viewer';
+  v.innerHTML = '<div class="vbar"><b>' + esc(title) + '</b><button class="btn y" onclick="closeViewer()">Close</button></div>' +
+    '<div class="vwrap"><iframe src="' + src + '" sandbox="allow-scripts allow-same-origin allow-forms" referrerpolicy="no-referrer" allow="fullscreen" title="Document"></iframe>' +
+    '<div class="vblock"></div><div class="vmark" style="background-image:' + wm + '"></div></div>';
+  document.body.append(v); document.body.classList.add('viewing');
+  const stop = e => e.preventDefault();
+  _vk = { stop, key: e => { const k = e.key.toLowerCase(); if (k == 'printscreen' || k == 'escape' && 0 || (e.ctrlKey || e.metaKey) && 'pscaxu'.includes(k)) e.preventDefault(); if (k == 'escape') closeViewer(); } };
+  ['contextmenu', 'copy', 'cut', 'dragstart', 'selectstart'].forEach(t => document.addEventListener(t, _vk.stop));
+  document.addEventListener('keydown', _vk.key);
+}
+/* ---------- v47: any link (exam website, Google Form, Drive file or folder) opens INSIDE the site, in a full-screen frame with a Close button ---------- */
+function embedAny(u) {
+  const d = embedUrl(u); if (d) return d;                                                           // Drive file / Doc / Slides / Sheet -> protected preview
+  let m = u.match(/drive\.google\.com\/drive\/(?:u\/\d+\/)?folders\/([\w-]+)/) || u.match(/drive\.google\.com\/(?:drive\/)?folderview\?(?:[^#]*&)?id=([\w-]+)/);
+  if (m) return 'https://drive.google.com/embeddedfolderview?id=' + m[1] + '#list';                  // Drive folder
+  if (/^https:\/\/docs\.google\.com\/forms\//i.test(u) && !/[?&]embedded=true/.test(u)) return u + (u.includes('?') ? '&' : '?') + 'embedded=true';   // Google Form
+  return u;
+}
+function openFrame(title, url) {
+  closeViewer();
+  const v = document.createElement('div'); v.id = 'viewer';
+  v.innerHTML = '<div class="vbar"><b>' + esc(title) + '</b><span><a class="vopen" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">Not loading? Open in new tab</a> <button class="btn y" onclick="closeViewer()">Close</button></span></div>' +
+    '<div class="vwrap"><iframe src="' + esc(embedAny(url)) + '" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" referrerpolicy="no-referrer" allow="fullscreen; camera" title="' + esc(title) + '"></iframe></div>';
+  document.body.append(v); document.body.classList.add('viewing');
+  _vk = { stop() {}, key: e => { if (e.key == 'Escape') closeViewer(); } };
+  document.addEventListener('keydown', _vk.key);
+}
+function openItem(kind, id) {
+  const x = (kind == 'exam' ? EL : LM || []).find(o => o.id == id); if (!x) return;
+  if (kind == 'lab' && embedUrl(x.link)) return openViewer(x.title, embedUrl(x.link));              // lab manual (Drive file): protected viewer
+  openFrame(x.title, x.link);
+}
+function closeViewer() {
+  const v = $('#viewer'); if (v) v.remove(); document.body.classList.remove('viewing');
+  if (_vk) { ['contextmenu', 'copy', 'cut', 'dragstart', 'selectstart'].forEach(t => document.removeEventListener(t, _vk.stop)); document.removeEventListener('keydown', _vk.key); _vk = null; }
+}
+if (ROLE != 'admin') document.body.classList.add('nocopy');                // students / CR: page cannot be printed
+/* ---------- rich text box for notices: bold, italic, underline, alignment, bullets, numbers ---------- */
+function rteBar() {
+  const b = (cmd, label, title, arg) => '<button type="button" class="rb" title="' + title + '" aria-label="' + title + '" onmousedown="event.preventDefault()" onclick="rteCmd(\'' + cmd + '\'' + (arg ? ',\'' + arg + '\'' : '') + ')">' + label + '</button>';
+  return '<div class="rte-bar" role="toolbar" aria-label="Text formatting">' +
+    b('bold', '<b>B</b>', 'Bold') + b('italic', '<i>I</i>', 'Italic') + b('underline', '<u>U</u>', 'Underline') + '<span class="rsep"></span>' +
+    b('justifyLeft', '⬑ Left', 'Align left') + b('justifyCenter', 'Center', 'Align centre') + b('justifyRight', 'Right', 'Align right') + b('justifyFull', 'Justify', 'Justify') + '<span class="rsep"></span>' +
+    b('insertUnorderedList', '• Bullets', 'Bullet list') + b('insertOrderedList', '1. Numbers', 'Numbered list') + '<span class="rsep"></span>' +
+    b('formatBlock', 'Heading', 'Heading', 'H3') + b('formatBlock', 'Normal', 'Normal text', 'P') + b('removeFormat', 'Clear', 'Remove formatting') + '</div>';
+}
+function rteCmd(cmd, arg) { const ed = $('#ni'); if (!ed) return; ed.focus(); document.execCommand(cmd, false, arg || null); }
+function rteInit() {
+  const ed = $('#ni'); if (!ed) return;
+  document.execCommand('defaultParagraphSeparator', false, 'div');
+  ed.addEventListener('paste', e => {                                    // paste as plain text (no foreign styles)
+    e.preventDefault(); document.execCommand('insertText', false, (e.clipboardData || window.clipboardData).getData('text/plain'));
+  });
+}
+
+/* ---------- create / edit the lab batches (admin) ---------- */
+function batchModal() {
+  if (!ST.length) return toast('Add students to this subject first (Students tab)', 1);
+  const cur = {}; (BT ? BT.rows : []).forEach(r => cur[r.student_id] = r.batch);
+  modal('<h3>Lab batches · ' + esc(C.subject.code) + '</h3>' +
+    '<p class="sm">Put every student in <b>Batch 1</b> or <b>Batch 2</b>. A student can be in only one batch. Students left as “No batch” do not see new lab programs.</p>' +
+    '<div class="form2" style="margin:10px 0"><label class="fld">Batch 1 color<input type="color" id="bc1" value="' + bCol(1) + '"></label><label class="fld">Batch 2 color<input type="color" id="bc2" value="' + bCol(2) + '"></label></div>' +
+    '<div class="form2"><label class="fld">Batch 1 – Reg Nos / Gmails<textarea id="br1" rows="3" class="mono" placeholder="Paste Reg Nos (comma, space or new line)"></textarea></label>' +
+      '<label class="fld">Batch 2 – Reg Nos / Gmails<textarea id="br2" rows="3" class="mono" placeholder="Paste Reg Nos (comma, space or new line)"></textarea></label></div>' +
+    '<div class="row" style="margin:8px 0"><button type="button" class="btn alt" id="bap">Apply the typed Reg Nos</button><button type="button" class="btn alt" id="bhf">Split in half</button><button type="button" class="btn alt" id="bcl">Clear all</button></div>' +
+    '<label class="fld">Search<input id="bq" autocomplete="off" placeholder="Reg No or name"></label>' +
+    '<p class="sm" id="bsum" style="margin:8px 0 4px"></p>' +
+    '<div class="pick" style="max-height:300px">' + ST.map(s => '<div class="brow" data-q="' + esc((ident(s) + ' ' + s.name).toLowerCase()) + '"><span><b>' + esc(ident(s)) + '</b> ' + esc(s.name) + '</span>' +
+      '<select class="bs" data-id="' + s.id + '" data-r="' + esc(ident(s)) + '"><option value="">No batch</option><option value="1"' + (cur[s.id] == 1 ? ' selected' : '') + '>Batch 1</option><option value="2"' + (cur[s.id] == 2 ? ' selected' : '') + '>Batch 2</option></select></div>').join('') + '</div>' +
+    '<div class="row" style="margin:14px 0 0"><button class="btn y" id="bsv">Save batches</button><button class="btn alt" onclick="closeModal()">Cancel</button></div>');
+  const sels = () => [...document.querySelectorAll('.bs')];
+  const sum = () => { const c = { 1: 0, 2: 0, '': 0 }; sels().forEach(x => c[x.value]++); $('#bsum').innerHTML = bPill(1, 'Batch 1 · ' + c[1]) + ' ' + bPill(2, 'Batch 2 · ' + c[2]) + ' <span class="sm">No batch · ' + c[''] + '</span>'; };
+  sum();
+  document.querySelector('.pick').onchange = sum;
+  $('#bq').oninput = e => { const v = e.target.value.trim().toLowerCase(); document.querySelectorAll('.brow').forEach(r => r.hidden = v && !r.dataset.q.includes(v)); };
+  $('#bap').onclick = () => {
+    const miss = [], seen = new Set();
+    [1, 2].forEach(b => { String($('#br' + b).value).toUpperCase().split(/[\s,;]+/).filter(Boolean).forEach(rg => {
+      const x = sels().find(o => o.dataset.r.toUpperCase() == rg); if (!x) return miss.push(rg);
+      if (seen.has(rg)) return; seen.add(rg); x.value = String(b); }); });
+    sum(); toast(miss.length ? 'Not in this subject: ' + miss.slice(0, 6).join(', ') + (miss.length > 6 ? '…' : '') : 'Reg Nos applied. Press Save batches.', !!miss.length);
+  };
+  $('#bhf').onclick = () => { const a = sels(), h = Math.ceil(a.length / 2); a.forEach((x, i) => x.value = i < h ? '1' : '2'); sum(); };
+  $('#bcl').onclick = () => { sels().forEach(x => x.value = ''); sum(); };
+  $('#bsv').onclick = e => run(async () => {
+    const rw = sels().filter(x => x.value).map(x => ({ student_id: x.dataset.id, batch: Number(x.value) })), colors = { 1: $('#bc1').value, 2: $('#bc2').value };
+    if (!rw.some(r => r.batch == 1) && !rw.some(r => r.batch == 2)) { if (!confirm('No student is in a batch. Save anyway?')) return; }
+    if (colors[1].toLowerCase() == colors[2].toLowerCase()) throw Error('Give the two batches different colors');
+    try { await T('batches_save', { sid, rw, colors }); }
+    catch (er) { throw /batches_save|schema cache/i.test(er.message || '') ? Error('Run the new SQL file 16_lab_batches.sql once in Supabase (see README), then try again.') : er; }
+    closeModal(); toast('Batches saved'); await load();
+  }, e.target);
+}
+
+/* ---------- TASKS ---------- */
+let TK = [], TKOPEN = null;
+const MAXDOC = 3 * 1024 * 1024;
+const fmtSize = b => b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
+const fileB64 = f => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => no(Error('The file could not be read')); r.readAsDataURL(f); });
+const stPill = x => x == 'verified' ? '<span class="pill ok">OK · verified</span>' : x == 'redo' ? '<span class="pill no">Correct and send again</span>' : x == 'submitted' ? '<span class="pill wait">Submitted · waiting for check</span>' : '<span class="pill">Not submitted</span>';
+
+let TKEDIT = null;                           // id of the task the admin is editing (null = new task)
+const toLocalDT = d => { if (!d) return ''; const x = new Date(d), p = n => String(n).padStart(2, '0'); return x.getFullYear() + '-' + p(x.getMonth() + 1) + '-' + p(x.getDate()) + 'T' + p(x.getHours()) + ':' + p(x.getMinutes()); };
+async function tasksView() {
+  TK = await T('tasks_get', { sid });
+  const e = TKEDIT ? TK.find(x => x.id == TKEDIT) : null; if (TKEDIT && !e) TKEDIT = null;
+  const vis = !e || e.visible !== false;
+  const add = !ADM ? '' : '<div class="card" id="tform"><h3>' + (e ? 'Edit task' : 'Post a task') + '</h3><div class="form2">' +
+      '<label class="fld"><span class="req">Title</span><input id="tt" maxlength="120" autocomplete="off" value="' + esc(e ? e.title : '') + '"></label>' +
+      '<label class="fld"><span class="req">Google Drive link</span><input id="tl" type="url" placeholder="https://drive.google.com/…" autocomplete="off" value="' + esc(e && e.link ? e.link : '') + '"></label>' +
+      '<label class="fld">Deadline<input id="td" type="datetime-local" value="' + toLocalDT(e && e.deadline) + '"></label></div>' +
+    '<p class="sm" style="margin-top:10px">Share the file in Drive as “Anyone with the link”, then paste the link. Students open it from the Tasks tab and send their own work in the <b>Submit Work</b> tab.</p>' +
+    '<div class="row"><button class="btn y" id="tp">' + (e ? 'Save changes' : 'Post task') + '</button>' + (e ? '<button class="btn alt" id="tc">Cancel</button>' : '') + '</div></div>';
+  $('#pane').innerHTML = add + (TK.map(taskCard).join('') || '<p class="sm" style="margin-top:16px">No tasks yet.</p>');
+  if (ADM) {
+    if (e && $('#tc')) $('#tc').onclick = () => { TKEDIT = null; tasksView(); };
+    $('#tp').onclick = ev => run(async () => {
+      const t = $('#tt').value.trim(), lk = $('#tl').value.trim(), d = $('#td').value, dl = d ? new Date(d).toISOString() : '', nt = e && e.message ? e.message : '', vs = !e || e.visible !== false;      // a task needs only: title, Drive link, deadline
+      if (!t) throw Error('Enter the title of the task');
+      if (!/^https:\/\/(drive|docs)\.google\.com\//i.test(lk)) throw Error('Only a Google Drive link is accepted (https://drive.google.com/…)');
+      if (e) { await T('task_edit', { i: e.id, ti: t, lk, nt, dl, vis: vs }); TKEDIT = null; toast('Task updated'); await tasksView(); return; }
+      await T('task_post', { sid, ti: t, lk, nt, dl, vis: vs });
+      toast(vs ? 'Task posted' : 'Task saved with visible = false (students cannot see it yet)'); await tasksView();
+      if (!vs) return;
+      const body = (dl ? '<p><b>Deadline:</b> ' + esc(fmtDT(dl)) + '</p>' : '') + (nt ? '<p>' + esc(nt) + '</p>' : '') + '<p>Log in and open the Tasks tab to see the task.</p>';
+      toast('Task posted' + await mailPosted(sid, C.subject.code + ' – new task: ' + t, (dl ? 'Deadline: ' + fmtDT(dl) + '\n\n' : '') + nt + '\n\nLog in and open the Tasks tab to see the task.', 'Task', body));
+    }, ev.target);
+  }
+  if (TKOPEN && TK.some(x => x.id == TKOPEN)) reviewOpen(TKOPEN, true);
+}
+function taskEdit(id) { TKEDIT = id; run(async () => { await tasksView(); const f = $('#tform'); if (f) f.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); }
+
+/* v41: the deadline is one field; a submission after it is "Late" (it is still accepted).  k = task, at = a date or a time stamp, sub = true when at is the time of a submission */
+function isLate(k, at, sub) {
+  const dl = k.deadline ? new Date(k.deadline) : k.due_date ? new Date(String(k.due_date).slice(0, 10) + 'T23:59:59') : null;
+  return !!(dl && at && new Date(at) > dl);
+}
+const btnForm = (k, label) => '<div class="tk-up"><button class="btn y" onclick="tkBtn(\'' + k.id + '\',this)">' + label + '</button></div>' +
+  '<p class="sm" style="margin:6px 0 0">Press the button when you have finished this task. ' + (k.deadline ? 'Deadline: ' + fmtDT(k.deadline) + '.' : '') + '</p>';
+function tkBtn(id, btn) {
+  if (!confirm('Submit this task now?')) return;
+  run(async () => { await T('task_submit_button', { tid: id }); toast('Submitted'); await tasksView(); }, btn);
+}
+
+function taskCard(k) {
+  const late = isLate(k, new Date()), m = k.mine;
+  let h = '<div class="card tk' + vkCls(k) + '"' + vkAttr('task', k) + ' id="tk' + k.id + '"><div class="tk-top"><div><h3 style="margin:0">' + esc(k.title) + '</h3><div class="tk-meta">' +
+    (k.deadline || k.due_date ? '<span class="pill ' + (late && !(m && m.status == 'verified') ? 'no' : 'wait') + '">Deadline ' + (k.deadline ? fmtDT(k.deadline) : fmtDate(k.due_date)) + (late ? ' · passed' : '') + '</span>' : '') +
+    (k.link ? '' : '<span class="pill">' + (k.submit_mode == 'button' ? 'Submit button' : 'Drive link') + '</span>') +
+    (k.max_marks != null ? '<span class="pill">' + Number(k.max_marks) + ' marks</span>' : '') + '<span class="sm">Posted ' + fmtDT(k.created_at) + '</span></div></div>' +
+    (ADM ? '<div class="act">' + (k.link ? '<button class="btn" onclick="taskEdit(\'' + k.id + '\')">Edit</button>' : '<button class="btn" onclick="reviewOpen(\'' + k.id + '\')">Review submissions</button>') + '<button class="btn alt" onclick="delTask(\'' + k.id + '\')">Delete</button></div>' : '') + '</div>' +
+    (k.message ? '<div class="rich" style="margin-top:12px">' + richHtml(k.message) + '</div>' : '') + (k.link ? '<div class="lk" style="margin-top:12px">' + lkBtns(k.link) + '</div>' : '');
+  if ((ADM || ROLE == 'cr') && !k.link) h += '<div class="tk-sum"><span class="pill">' + k.submitted + ' of ' + k.total + ' submitted</span><span class="pill ok">' + k.verified + ' OK</span>' + (k.submitted - k.verified ? '<span class="pill wait">' + (k.submitted - k.verified) + ' to check</span>' : '') + '</div>';
+  if (ADM && !k.link) h += '<div id="rv' + k.id + '"></div>';
+  if (STU && !k.link) {
+    const tm = k.project && PT && PT.my ? PT.teams.find(x => x.id == PT.my) : null, who = k.project ? 'Your team\u2019s answer' : 'Your answer', BTN = k.submit_mode == 'button';
+    h += '<div class="tk-mine"><h4>' + who + (BTN ? '' : ' (one Google Drive link)') + '</h4>';
+    if (k.project && !tm) h += '<p class="tip" style="margin:0">You are not in a team yet. The admin will add you to a team.</p>';
+    else if (!m) h += '<div>' + stPill('') + (tm ? ' <span class="sm">Team: ' + esc(tm.name) + '</span>' : '') + '</div>' + (BTN ? btnForm(k, 'Submit task') : lkForm(k.id, 'Submit link'));
+    else {
+      h += (m.has_link ? '<div class="tk-file"><span class="tk-doc">🔒 Drive file submitted</span><button class="btn y" onclick="tkView(\'' + m.id + '\')">View</button></div>' : m.via_button ? '<div class="tk-file"><span class="tk-doc">✅ Submitted with the button</span></div>' : '<div class="tk-file"><span class="tk-doc">📄 ' + esc(m.file_name || 'Word file') + '</span><span class="sm">sent with an older version</span><button class="btn alt" onclick="tkDownload(\'' + m.id + '\')">Download</button></div>') +
+        '<div class="sm">' + (tm ? 'Team ' + esc(tm.name) + ' · sent by ' + esc(m.by || '') + ' · ' : '') + fmtDT(m.updated_at || m.submitted_at) + '</div>' +
+        '<div>' + stPill(m.status) + (isLate(k, m.submitted_at, true) ? ' <span class="pill no">Late</span>' : '') + (m.status == 'verified' && m.marks != null ? ' <span class="tk-mark">' + Number(m.marks) + (k.max_marks != null ? ' / ' + Number(k.max_marks) : '') + '</span>' : '') + '</div>' +
+        (m.remark ? '<p class="pre" style="margin:0"><b>Remark:</b> ' + esc(m.remark) + '</p>' : '') +
+        (m.status != 'verified' ? '<div class="act" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn alt" onclick="tkDelete(\'' + m.id + '\')">' + (BTN ? 'Undo my submission' : 'Delete my submission') + '</button></div>' + (BTN ? (m.status == 'redo' ? btnForm(k, 'Submit again') : '') : '<details><summary>Edit: replace the link</summary>' + lkForm(k.id, 'Replace link') + '</details>') : '<p class="sm" style="margin:0">The admin marked this as OK, so it is locked.</p>');
+    }
+    h += '</div>';
+  }
+  return h + '</div>';
+}
+function tkDelete(subId) { if (!confirm('Delete your submission?')) return; run(async () => { await T('task_sub_del', { i: subId }); toast('Deleted'); await tasksView(); }); }
+function delTask(id) { if (!confirm('Delete this task and all the files students submitted for it?')) return; run(async () => { await T('task_del', { i: id }); TKOPEN = null; toast('Task deleted'); await tasksView(); }); }
+function tkDownload(subId) {
+  run(async () => {
+    const f = await T('task_file', { i: subId }), bin = atob(f.file_data), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([u8], { type: /\.docx$/i.test(f.file_name) ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/msword' }));
+    a.download = f.file_name; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  });
+}
+
+/* admin: all students of the subject with their submission, and the actions Mark OK / Needs correction / Marks / Remove */
+let RV = {};
+async function reviewOpen(id, keep) {
+  const box = $('#rv' + id); if (!box) return;
+  if (!keep && TKOPEN == id && box.innerHTML) { box.innerHTML = ''; TKOPEN = null; return; }
+  TKOPEN = id; box.innerHTML = '<p class="sm" style="margin-top:12px">Loading…</p>';
+  try {
+    const rows = await T('task_subs', { tid: id }), k = TK.find(x => x.id == id); RV[id] = rows;
+    const P = k.project;
+    box.innerHTML = '<div class="row" style="margin:14px 0 8px"><b>' + (P ? 'Team submissions' : 'Submissions') + '</b><button class="btn alt" onclick="rvExport(\'' + id + '\')">Excel</button></div>' +
+      '<div class="tw"><table class="stack tk-rev"><tr>' + (P ? '<th>Team</th><th>Members</th><th>Submission</th>' : '<th>Student</th><th>Reg No</th><th>Submission</th>') + '<th>Status</th><th>Marks</th><th>Actions</th></tr>' +
+      rows.map((r, ix) => '<tr>' + (P ? '<td data-label="Team"><b>' + esc(r.name) + '</b></td><td data-label="Members"><span class="sm">' + esc(r.email) + '</span></td>' :
+        '<td data-label="Student"><b>' + esc(r.name) + '</b><br><span class="sm">' + esc(r.email) + '</span></td><td data-label="Reg No">' + esc(r.regno || '–') + '</td>') +
+        '<td data-label="Submission">' + (r.sub_id ? (r.via_button ? 'Pressed the Submit button<br><span class="sm">' + (r.by ? 'sent by ' + esc(r.by) + ' · ' : '') + fmtDT(r.updated_at) + '</span>' : r.has_link ? '<button class="btn y" style="padding:6px 14px" onclick="tkView(\'' + r.sub_id + '\')">View</button><br><span class="sm">' + (r.by ? 'sent by ' + esc(r.by) + ' · ' : '') + fmtDT(r.updated_at) + '</span>' :
+          esc(r.file_name) + '<br><span class="sm">older Word file · ' + fmtSize(r.file_size || 0) + ' · ' + fmtDT(r.updated_at) + '</span>') : '<span class="sm">–</span>') + '</td>' +
+        '<td data-label="Status">' + stPill(r.sub_id ? r.status : '') + (r.sub_id && isLate(k, r.submitted_at, true) ? ' <span class="pill no">Late</span>' : '') + (r.remark ? '<br><span class="sm">' + esc(r.remark) + '</span>' : '') + '</td>' +
+        '<td data-label="Marks">' + (r.status == 'verified' && r.marks != null ? '<b>' + Number(r.marks) + '</b>' + (k.max_marks != null ? ' / ' + Number(k.max_marks) : '') : '–') + '</td>' +
+        '<td class="act">' + (r.sub_id ? (r.has_link ? '<a onclick="tkView(\'' + r.sub_id + '\')">View</a>' : r.via_button ? '' : '<a onclick="tkDownload(\'' + r.sub_id + '\')">Download</a>') +
+          (r.status == 'verified' ? '<a onclick="rvMarks(\'' + id + '\',' + ix + ')">Update marks</a>' : '<a onclick="rvMarks(\'' + id + '\',' + ix + ')">Mark OK</a>') +
+          (r.status != 'redo' ? '<a onclick="rvRedo(\'' + id + '\',' + ix + ')">Needs correction</a>' : '') +
+          '<a onclick="rvRemove(\'' + id + '\',' + ix + ')">Remove</a>' : '<span class="sm">Not submitted</span>') + '</td></tr>').join('') + '</table></div>';
+  } catch (e) { box.innerHTML = ''; toast(e.message, 1); }
+}
+function rvMarks(id, ix) {
+  const r = RV[id][ix], k = TK.find(x => x.id == id);
+  modal('<h3>' + (r.status == 'verified' ? 'Update marks' : 'Mark as OK') + ' · ' + esc(r.name) + '</h3>' +
+    '<p class="sm">' + (r.has_link ? 'Drive file (open it with View)' : r.via_button ? 'Submitted with the Submit button' : 'File: ' + esc(r.file_name)) + '</p>' +
+    '<label class="fld">Marks' + (k.max_marks != null ? ' (out of ' + Number(k.max_marks) + ')' : '') + '<input id="rm1" type="number" min="0" step="0.5" inputmode="decimal" value="' + (r.marks != null ? Number(r.marks) : '') + '"></label>' +
+    '<label class="fld">Remark for the student (optional)<input id="rm2" maxlength="500" value="' + esc(r.remark || '') + '"></label>' +
+    '<div class="row" style="margin:0"><button class="btn y" id="rm3">' + (r.status == 'verified' ? 'Save marks' : 'Save as OK') + '</button><button class="btn alt" onclick="closeModal()">Cancel</button></div>');
+  $('#rm3').onclick = e => run(async () => {
+    const v = { m: $('#rm1').value, n: $('#rm2').value };
+    await T('task_review', { i: r.sub_id, st: 'verified', mk: v.m, rm: v.n });
+    closeModal(); toast('Saved'); await tasksView();
+  }, e.target);
+}
+function rvRedo(id, ix) {
+  const r = RV[id][ix], why = prompt('What should ' + r.name + ' correct? (shown to the student)', r.remark || ''); if (why === null) return;
+  run(async () => { await T('task_review', { i: r.sub_id, st: 'redo', mk: '', rm: why }); toast('Sent back to the student'); await tasksView(); });
+}
+function rvRemove(id, ix) {
+  const r = RV[id][ix]; if (!confirm('Remove the submission of ' + r.name + '?\nThe student can submit again.')) return;
+  run(async () => { await T('task_sub_del', { i: r.sub_id }); toast('Removed'); await tasksView(); });
+}
+function rvExport(id) {
+  const k = TK.find(x => x.id == id);
+  run(() => exportTable('xlsx', ['Name', 'Gmail / members', 'Reg No', 'Mobile', 'Submission', 'Submitted at', 'Late', 'Status', 'Marks', 'Remark'], RV[id].map(r => [r.name, r.email, r.regno || '', r.mobile || '', (r.has_link ? 'Drive link submitted' : r.via_button ? 'Submit button pressed' : r.file_name || ''), r.sub_id ? fmtDT(r.submitted_at) : '', r.sub_id && isLate(k, r.submitted_at, true) ? 'Late' : '', r.sub_id ? r.status : 'not submitted', r.status == 'verified' && r.marks != null ? String(Number(r.marks)) : '', r.remark || '']), C.subject.code + ' – ' + k.title, C.subject.code + '-task'));
+}
+
+
+/* ---------- Google Drive links: open + direct download ---------- */
+const driveId = u => (String(u).match(/\/d\/([\w-]{10,})/) || String(u).match(/[?&]id=([\w-]{10,})/) || [])[1];
+function driveDl(u) {
+  const id = driveId(u); if (!id) return null;
+  if (/docs\.google\.com\/document/.test(u)) return 'https://docs.google.com/document/d/' + id + '/export?format=docx';
+  if (/docs\.google\.com\/spreadsheets/.test(u)) return 'https://docs.google.com/spreadsheets/d/' + id + '/export?format=xlsx';
+  if (/docs\.google\.com\/presentation/.test(u)) return 'https://docs.google.com/presentation/d/' + id + '/export/pptx';
+  return 'https://drive.google.com/uc?export=download&id=' + id;
+}
+const lkBtns = u => '<a class="btn alt" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">Open</a>' +
+  (driveDl(u) ? '<a class="btn" href="' + esc(driveDl(u)) + '" target="_blank" rel="noopener noreferrer">Download</a>' : '<span class="sm">Folder: open it to download</span>');
+const lkForm = (id, label) => '<div class="tk-up"><input type="url" id="tl' + id + '-' + label[0] + '" placeholder="https://drive.google.com/…" aria-label="Google Drive link" autocomplete="off"><button class="btn y" onclick="tkLink(\'' + id + '\',\'' + label[0] + '\',this)">' + label + '</button></div>' +
+  '<p class="sm" style="margin:6px 0 0">Link of your <b>file</b> (Word / PPT / PDF) in Google Drive, not a folder. Share it as “Anyone with the link”, then paste it here. Nobody sees the link: it is opened with <b>View</b> inside this site.</p>';
+function tkLink(id, w, btn) {
+  run(async () => {
+    const v = ($('#tl' + id + '-' + w).value || '').trim();
+    if (!v) throw Error('Paste your Google Drive link first');
+    if (!/^https:\/\/(drive|docs)\.google\.com\//i.test(v)) throw Error('Only a Google Drive link is accepted (https://drive.google.com/…)');
+    if (!/\/d\/[\w-]{10,}|[?&]id=[\w-]{10,}/.test(v)) throw Error('Paste the link of the FILE, not of a folder.');
+    await T('task_submit_link', { tid: id, lk: v }); toast('Submitted'); await tasksView();
+  }, btn);
+}
+
+/* ---------- TEAMS (projects) ---------- */
+function teamsView() {
+  const P = PT, my = P.my;
+  $('#pane').innerHTML = (ADM ? '<div class="card"><h3>Teams</h3><div class="row" style="margin:0;align-items:center"><button class="btn y" id="tn">+ Create team</button>' +
+      '<span class="sm">or put every student without a team into teams of</span><input id="ta" type="number" min="1" max="20" value="4" style="width:84px" aria-label="Team size"><button class="btn" id="tg">Make teams</button></div>' +
+      '<p class="sm" style="margin:12px 0 0">' + (P.free && P.free.length ? 'Without a team (' + P.free.length + '): ' + P.free.map(f => esc(f.name)).join(', ') : 'Every student is in a team.') + '</p></div>' : '') +
+    (my ? '' : STU ? '<p class="tip">You are not in a team yet. The admin will add you to a team.</p>' : '') +
+    (P.teams.length ? '<div class="tgrid">' + P.teams.map(tm => '<div class="card team' + (tm.id == my ? ' mine' : '') + '"><div class="tk-top"><h3>' + esc(tm.name) + '</h3>' + (tm.id == my ? '<span class="pill ok">Your team</span>' : '') + '</div>' +
+      (tm.title ? '<p class="sm" style="margin:2px 0"><b>Project:</b> ' + esc(tm.title) + '</p>' : '') + (tm.guide ? '<p class="sm" style="margin:2px 0"><b>Guide:</b> ' + esc(tm.guide) + '</p>' : '') +
+      '<div style="margin-top:8px">' + (tm.members.map(m => '<div class="mem">' + (m.leader ? '<span class="star" title="Team leader">★</span>' : '<span style="width:14px"></span>') + '<b>' + esc(m.name) + '</b><span class="sm">' + esc(m.regno || m.email || '') + '</span>' + (m.mobile ? '<span class="sm" style="margin-left:auto">' + esc(m.mobile) + '</span>' : '') + '</div>').join('') || '<p class="sm">No members yet.</p>') + '</div>' +
+      (ADM ? '<div class="row" style="margin:12px 0 0"><button class="btn" onclick="teamModal(\'' + tm.id + '\')">Edit</button><button class="btn alt" onclick="teamDel(\'' + tm.id + '\')">Delete</button></div>' : '') + '</div>').join('') + '</div>' :
+      '<p class="sm" style="margin-top:16px">No teams yet.</p>');
+  if (ADM) {
+    $('#tn').onclick = () => teamModal();
+    $('#tg').onclick = e => run(async () => { const n = parseInt($('#ta').value); const made = await T('teams_auto', { sid, n }); toast(made + ' team(s) created'); await load(); }, e.target);
+  }
+}
+function teamModal(id) {
+  const tm = id ? PT.teams.find(x => x.id == id) : { name: 'Team ' + (PT.teams.length + 1), title: '', guide: '', members: [] };
+  const pool = (PT.free || []).concat(tm.members.map(m => ({ student_id: m.student_id, name: m.name, regno: m.regno, email: m.email }))), lead = (tm.members.find(m => m.leader) || {}).student_id;
+  modal('<h3>' + (id ? 'Edit team' : 'Create team') + '</h3>' +
+    '<label class="fld"><span class="req">Team name</span><input id="tm1" maxlength="60" value="' + esc(tm.name) + '"></label>' +
+    '<label class="fld">Project title<input id="tm2" maxlength="150" value="' + esc(tm.title || '') + '"></label>' +
+    '<label class="fld">Guide<input id="tm3" maxlength="100" value="' + esc(tm.guide || '') + '"></label>' +
+    '<div class="fld"><label>Members (tick) and the team leader</label><div class="chk">' + (pool.map(m => '<label><input type="checkbox" class="tmc" value="' + m.student_id + '"' + (tm.members.some(x => x.student_id == m.student_id) ? ' checked' : '') + '><span>' + esc(m.name) + ' <span class="sm">' + esc(m.regno || m.email || '') + '</span></span><span class="ld"><input type="radio" name="tml" value="' + m.student_id + '"' + (lead == m.student_id ? ' checked' : '') + '>Leader</span></label>').join('') || '<p class="sm" style="padding:8px">Every student is already in a team.</p>') + '</div></div>' +
+    '<div class="row" style="margin:0"><button class="btn y" id="tm4">Save team</button><button class="btn alt" onclick="closeModal()">Cancel</button></div>');
+  $('#tm4').onclick = e => run(async () => {
+    const ld = (document.querySelector('input[name=tml]:checked') || {}).value, ids = [...document.querySelectorAll('.tmc:checked')].map(x => x.value);
+    const v = { n: $('#tm1').value, t: $('#tm2').value, g: $('#tm3').value, mem: ids.map((x, i) => ({ student_id: x, leader: ld ? x == ld : i == 0 })) };
+    await T('team_save', { sid, tid: id || null, nm: v.n, ti: v.t, gd: v.g, mem: v.mem });
+    closeModal(); toast('Team saved'); await load();
+  }, e.target);
+}
+function teamDel(id) { if (!confirm('Delete this team? The students stay in the project.')) return; run(async () => { await T('team_del', { i: id }); toast('Team deleted'); await load(); }); }
+
+/* ---------- FORMATS (projects): the admin posts report / PPT / code formats as Drive links ---------- */
+function formatsView() {
+  $('#pane').innerHTML = (ADM ? '<div class="card"><h3>Post a format</h3><div class="form2">' +
+      '<label class="fld"><span class="req">Title</span><input id="fm1" maxlength="120" placeholder="e.g. Project report format" autocomplete="off"></label>' +
+      '<label class="fld"><span class="req">Google Drive link</span><input id="fm2" type="url" placeholder="https://drive.google.com/…" autocomplete="off"></label></div>' +
+    '<label class="fld">Note (optional)<input id="fm3" maxlength="500" autocomplete="off"></label>' +
+    '<p class="sm">Every student of this project gets an e-mail and a notification.</p><div class="row"><button class="btn y" id="fm4">Post format</button></div></div>' : '') +
+    (FM.map(f => '<div class="card wk' + vkCls(f) + '"' + vkAttr('format', f) + '><div class="tk-top"><div><h3 style="margin:0">' + esc(f.title) + '</h3><span class="sm">Posted ' + fmtDT(f.created_at) + '</span></div>' + (ADM ? '<div class="act"><button class="btn alt" onclick="formatDel(\'' + f.id + '\')">Delete</button></div>' : '') + '</div>' +
+      (f.note ? '<p class="pre" style="margin:10px 0 0">' + esc(f.note) + '</p>' : '') + '<div class="lk" style="margin-top:12px">' + lkBtns(f.link) + '</div></div>').join('') || '<p class="sm" style="margin-top:16px">No formats posted yet.</p>');
+  if (ADM) $('#fm4').onclick = e => run(async () => {
+    const v = { t: $('#fm1').value.trim(), l: $('#fm2').value.trim(), n: $('#fm3').value.trim() };
+    if (!v.t) throw Error('Enter a title'); if (!/^https:\/\/(drive|docs)\.google\.com\//i.test(v.l)) throw Error('Only a Google Drive link is accepted');
+    await T('format_add', { sid, ti: v.t, nt: v.n, lk: v.l }); toast('Format posted'); await load();
+    toast('Format posted' + await mailPosted(sid, C.subject.code + ' – new format: ' + v.t, (v.n ? v.n + '\n\n' : '') + 'Open: ' + v.l, 'Format', '<p>' + esc(v.n) + '</p><p><a href="' + esc(v.l) + '">Open the format</a></p>'));
+  }, e.target);
+}
+function formatDel(id) { if (!confirm('Delete this format?')) return; run(async () => { await T('format_del', { i: id }); toast('Deleted'); await load(); }); }
+
+/* ---------- WORK posted to the admin: code / report / PPT ... (Drive link only) ---------- */
+let WF = { k: '', t: '' };
+function workView() {
+  const tm = PT && PT.my ? PT.teams.find(x => x.id == PT.my) : null, list = WK.filter(w => (!WF.k || w.kind == WF.k) && (!WF.t || (w.team || '–') == WF.t));
+  $('#pane').innerHTML = (STU ? '<div class="card"><h3>Post your work to the admin</h3><p class="sm" style="margin-top:0">' + (tm ? 'Your team: <b>' + esc(tm.name) + '</b>. Your teammates see this post too.' : PJ() ? 'You are not in a team yet, but you can post your work.' : 'Only you and the admin can see what you post.') + '</p><div class="form2">' +
+      '<label class="fld"><span class="req">What is it?</span>' + sel('wk1', ['Code', 'Report', 'PPT', 'Other'], 'Code') + '</label>' +
+      '<label class="fld">Title<input id="wk2" maxlength="120" placeholder="e.g. Login module code" autocomplete="off"></label>' +
+      '<label class="fld"><span class="req">Google Drive link</span><input id="wk3" type="url" placeholder="https://drive.google.com/…" autocomplete="off"></label>' +
+      '<label class="fld">Note (optional)<input id="wk4" maxlength="500" autocomplete="off"></label></div>' +
+    '<p class="sm">Drive link only. In Drive set sharing to “Anyone with the link”, then paste the link. The admin can open it and download it.</p><div class="row"><button class="btn y" id="wk5">Post to admin</button></div></div>' : '') +
+    (!STU ? '<div class="card"><div class="row" style="margin:0;align-items:center"><b>Work posted by students (' + WK.length + ')</b><span style="flex:1"></span>' + sel('wf1', ['', 'Code', 'Report', 'PPT', 'Other'], WF.k).replace('<option></option>', '<option value="">All types</option>') +
+      (PJ() ? sel('wf2', [''].concat([...new Set(WK.map(w => w.team || '–'))]), WF.t).replace('<option></option>', '<option value="">All teams</option>') : '') + '</div></div>' : '') +
+    (list.map(w => '<div class="card wk"><div class="tk-top"><div><span class="kd ' + w.kind + '">' + w.kind + '</span> <b style="font-size:17px">' + esc(w.title) + '</b>' +
+      '<div class="sm" style="margin-top:4px">' + (w.team ? 'Team ' + esc(w.team) + ' · ' : '') + esc(w.by) + (w.regno ? ' (' + esc(w.regno) + ')' : '') + ' · ' + fmtDT(w.updated_at || w.created_at) + '</div></div>' +
+      (ADM || w.mine ? '<div class="act">' + (w.mine ? '<button class="btn alt" onclick="workEdit(\'' + w.id + '\')">Edit</button>' : '') + '<button class="btn alt" onclick="workDel(\'' + w.id + '\')">Delete</button></div>' : '') + '</div>' +
+      (w.note ? '<p class="pre" style="margin:10px 0 0">' + esc(w.note) + '</p>' : '') + '<div class="lk" style="margin-top:12px">' + lkBtns(w.link) + '</div></div>').join('') || '<p class="sm" style="margin-top:16px">' + (STU ? 'You have not posted any work yet.' : 'No work posted yet.') + '</p>');
+  if (STU) $('#wk5').onclick = e => run(async () => {
+    const v = { k: $('#wk1').value, t: $('#wk2').value, l: $('#wk3').value.trim(), n: $('#wk4').value };
+    if (!/^https:\/\/(drive|docs)\.google\.com\//i.test(v.l)) throw Error('Only a Google Drive link is accepted (https://drive.google.com/…)');
+    await T('work_add', { sid, kd: v.k, ti: v.t, lk: v.l, nt: v.n }); toast('Posted to the admin'); await load();
+  }, e.target);
+  else { $('#wf1').onchange = e => { WF.k = e.target.value; workView(); }; if ($('#wf2')) $('#wf2').onchange = e => { WF.t = e.target.value; workView(); }; }
+}
+function workEdit(id) {
+  const w = WK.find(x => x.id == id);
+  modal('<h3>Edit post</h3><label class="fld">What is it?' + sel('we1', ['Code', 'Report', 'PPT', 'Other'], w.kind) + '</label>' +
+    '<label class="fld">Title<input id="we2" maxlength="120" value="' + esc(w.title) + '"></label>' +
+    '<label class="fld"><span class="req">Google Drive link</span><input id="we3" type="url" value="' + esc(w.link) + '"></label>' +
+    '<label class="fld">Note<input id="we4" maxlength="500" value="' + esc(w.note || '') + '"></label>' +
+    '<div class="row" style="margin:0"><button class="btn y" id="we5">Save</button><button class="btn alt" onclick="closeModal()">Cancel</button></div>');
+  $('#we5').onclick = e => run(async () => {
+    const v = { k: $('#we1').value, t: $('#we2').value, l: $('#we3').value.trim(), n: $('#we4').value };
+    await T('work_edit', { i: id, kd: v.k, ti: v.t, lk: v.l, nt: v.n }); closeModal(); toast('Saved'); await load();
+  }, e.target);
+}
+function workDel(id) { if (!confirm('Delete this post?')) return; run(async () => { await T('work_del', { i: id }); toast('Deleted'); await load(); }); }
+
+
+/* ---------- v46: shared bits ---------- */
+const sqlMissing = '<p class="note bad-note">Run the new SQL file <code>08_upgrade_v46.sql</code> once in Supabase (see README), then press Refresh.</p>';
+const isHttp = u => /^https?:\/\/\S+$/i.test(u);
+const openBtn = (u, label, cls) => '<a class="btn ' + (cls || 'y') + '" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';     // target = open in a NEW page
+
+/* ---------- EXAMS (v46): the admin posts a link; students open it inside this website.  Three kinds: Lab exam | Theory exam | Login IDs ---------- */
+function examsPane() {
+  if (EL === null) { $('#pane').innerHTML = sqlMissing; return; }
+  const form = !ADM ? '' : '<div class="card"><h3>Post an exam link</h3>' +
+    '<div class="fld"><label id="exkl">What is it?</label><div class="rbx" role="radiogroup" aria-labelledby="exkl">' +
+      [['lab', 'Lab exam', 'Link of the lab exam'], ['theory', 'Theory exam', 'Link of the theory exam'], ['login', 'Login IDs', 'Link with the exam login IDs']].map((k, i) =>
+        '<label><input type="radio" name="exk" value="' + k[0] + '"' + (i ? '' : ' checked') + '><span><b>' + k[1] + '</b><small>' + k[2] + '</small></span></label>').join('') + '</div></div>' +
+    '<div class="form2" style="margin-top:14px">' +
+      '<label class="fld"><span class="req">Title</span><input id="ext" maxlength="120" placeholder="e.g. Lab internal exam – Batch 1" autocomplete="off"></label>' +
+      '<label class="fld"><span class="req">Link</span><input id="exl" type="url" placeholder="https://…" autocomplete="off"></label></div>' +
+    '<p class="sm" style="margin-top:10px">Any link works (your exam website, Google Form, Drive). Students open it <b>inside this website</b> (no new page). Every student of this subject gets a notification.</p>' +
+    '<div class="row"><button class="btn y" id="exp">Post link</button></div></div>';
+  const groups = ['lab', 'theory', 'login'].map(k => ({ k, list: EL.filter(x => x.kind == k) })).filter(g => g.list.length);
+  $('#pane').innerHTML = form + (groups.map(g => '<h3 style="margin-top:20px">' + EXK[g.k] + '</h3>' + g.list.map(x =>
+    '<div class="card wk' + vkCls(x) + '"' + vkAttr('examlink', x) + '><div class="tk-top"><div><h3 style="margin:0">' + esc(x.title) + '</h3><span class="pill ' + (x.kind == 'lab' ? 'ok' : x.kind == 'login' ? 'wait' : '') + '">' + EXK[x.kind] + '</span> <span class="sm">Posted ' + fmtDT(x.created_at) + '</span></div>' +
+      '<div class="act">' + '<button class="btn y" onclick="openItem(\'exam\',\'' + x.id + '\')">' + (x.kind == 'login' ? 'Open login IDs' : 'Open ' + EXK[x.kind].toLowerCase()) + '</button>' +
+      (ADM ? '<button class="btn alt" onclick="delItem(\'examlink_del\',\'' + x.id + '\')">Delete</button>' : '') + '</div></div></div>').join('')).join('') ||
+    '<p class="sm" style="margin-top:16px">No exam links posted yet.</p>');
+  if (ADM) $('#exp').onclick = e => run(async () => {
+    const kd = document.querySelector('input[name=exk]:checked').value, t = $('#ext').value.trim(), l = $('#exl').value.trim();
+    if (!t) throw Error('Enter a title'); if (!isHttp(l)) throw Error('Paste a valid link (starting with https://)');
+    await T('examlink_add', { sid, kd, ti: t, lk: l });
+    toast(EXK[kd] + ' link posted'); await load();
+    toast(EXK[kd] + ' link posted' + await mailPosted(sid, C.subject.code + ' – ' + EXK[kd] + ': ' + t, EXK[kd] + ': ' + t + '\n\nLog in and open the Exams tab to open it.', EXK[kd], '<p><b>' + esc(EXK[kd]) + ':</b> ' + esc(t) + '</p><p>Log in and open the Exams tab to open it.</p>'));
+  }, e.target);
+}
+
+/* ---------- LAB MANUAL (v46): Name + Google Drive link + optional note; for everybody or (optional) one batch ---------- */
+function labManualPane() {
+  if (LM === null) { $('#pane').innerHTML = sqlMissing; return; }
+  const n1 = bRegs(1).length, n2 = bRegs(2).length, made = n1 + n2 > 0, mine = STU && BT && BT.rows.length ? BT.rows[0].batch : null;
+  const bopt = (v, name, sub, dis, col, ink) => '<label class="bopt' + (dis ? ' off' : '') + (v == 0 ? ' both' : '') + '" style="--bc:' + col + ';--bi:' + ink + '"><input type="radio" name="lmb" value="' + v + '"' + (dis ? ' disabled' : '') + (v == 0 ? ' checked' : '') + '><span><b>' + name + '</b><small>' + sub + '</small></span></label>';
+  const form = !ADM ? '' : '<div class="card"><h3>Post lab manual</h3><div class="form2">' +
+    '<label class="fld"><span class="req">Name</span><input id="lmt" maxlength="120" placeholder="e.g. DS Lab Manual" autocomplete="off"></label>' +
+    '<label class="fld"><span class="req">Google Drive link</span><input id="lml" type="url" placeholder="https://drive.google.com/…" autocomplete="off"></label></div>' +
+    '<label class="fld" style="margin-top:14px">Other mention (optional)<input id="lmn" maxlength="300" placeholder="e.g. Print it and bring it to the lab" autocomplete="off"></label>' +
+    (BT === null ? '' : '<div class="fld" style="margin-top:14px"><label id="lmbl">Who sees it? (batches are optional)</label><div class="bsel" role="radiogroup" aria-labelledby="lmbl">' +
+      bopt(0, 'All students', (ST.length) + ' student(s)', false, '#0b2a5b', '#ffffff') + bopt(1, 'Batch 1', n1 + ' student(s)', !n1, bCol(1), inkOn(bCol(1))) + bopt(2, 'Batch 2', n2 + ' student(s)', !n2, bCol(2), inkOn(bCol(2))) + '</div>' +
+      '<p class="sm" style="margin:8px 0 0">' + (made ? 'Only the chosen batch sees it and gets the e-mail.' : 'No batches yet. To post for one batch, create the batches first (optional).') +
+      ' <button type="button" class="btn alt xs" id="lmmk">' + (made ? '✎ Edit batches' : '+ Create batches') + '</button></p></div>') +
+    '<div class="row"><button class="btn y" id="lmp">Post lab manual</button></div></div>';
+  const note = STU && mine ? '<p style="margin:0 0 12px">You are in ' + bPill(mine) + '</p>' : '';
+  $('#pane').innerHTML = form + note + (LM.map(x => '<div class="card wk' + vkCls(x) + '"' + vkAttr('labmanual', x) + '><div class="tk-top"><div><h3 style="margin:0">' + esc(x.title) + '</h3>' +
+      (STU && mine ? '' : bPill(x.batch) + ' ') + '<span class="sm">Posted ' + fmtDT(x.created_at) + '</span></div>' +
+      (ADM ? '<div class="act"><button class="btn alt" onclick="delItem(\'labmanual_del\',\'' + x.id + '\')">Delete</button></div>' : '') + '</div>' +
+      (x.note ? '<p class="pre" style="margin:10px 0 0">' + esc(x.note) + '</p>' : '') + '<div class="lk" style="margin-top:12px"><button class="btn y" onclick="openItem(\'lab\',\'' + x.id + '\')">Open lab manual</button></div></div>').join('') ||
+    '<p class="sm" style="margin-top:16px">No lab manual posted yet.</p>');
+  if (!ADM) return;
+  if ($('#lmmk')) $('#lmmk').onclick = () => batchModal();
+  $('#lmp').onclick = e => run(async () => {
+    const t = $('#lmt').value.trim(), l = $('#lml').value.trim(), nt = $('#lmn').value.trim(), bt = Number((document.querySelector('input[name=lmb]:checked') || {}).value || 0);
+    if (!t) throw Error('Enter the name of the lab manual');
+    if (!/^https:\/\/(drive|docs)\.google\.com\//i.test(l)) throw Error('Only a Google Drive link is accepted (https://drive.google.com/…)');
+    await T('labmanual_add', { sid, ti: t, nt, lk: l, bt });
+    toast('Lab manual posted'); await load();
+    const who = bt ? 'Batch ' + bt : '';
+    toast('Lab manual posted' + await mailPosted(sid, C.subject.code + ' – new lab manual: ' + t, (who ? who + '\n' : '') + t + (nt ? '\n' + nt : '') + '\n\nLog in and open the Lab Manual tab.', 'Lab Manual', '<p>' + (who ? '<b>' + who + '</b><br>' : '') + esc(t) + (nt ? '<br>' + esc(nt) : '') + '</p><p>Log in and open the Lab Manual tab.</p>', bt ? bRegs(bt) : undefined, who || undefined));
+  }, e.target);
+}
+
+/* ---------- ZOOM MEETING (v46): Title + meeting link (+ optional date and time); students press Join, it opens in a new page ---------- */
+function meetingsPane() {
+  if (MT === null) { $('#pane').innerHTML = sqlMissing; return; }
+  const form = !ADM ? '' : '<div class="card"><h3>Post a meeting link</h3><div class="form2">' +
+    '<label class="fld"><span class="req">Title</span><input id="mtt" maxlength="120" placeholder="e.g. Doubt clearing class" autocomplete="off"></label>' +
+    '<label class="fld"><span class="req">Zoom / Meet link</span><input id="mtl" type="url" placeholder="https://zoom.us/j/…" autocomplete="off"></label>' +
+    '<label class="fld">Date and time (optional)<input id="mtd" type="datetime-local"></label></div>' +
+    '<p class="sm" style="margin-top:10px">Zoom, Google Meet, Teams – any meeting link. Students press <b>Join</b> and it opens in a new page. Every student of this subject gets a notification and an e-mail.</p>' +
+    '<div class="row"><button class="btn y" id="mtp">Post meeting</button></div></div>';
+  $('#pane').innerHTML = form + (MT.map(m => { const up = m.starts_at && new Date(m.starts_at) > new Date();
+    return '<div class="card wk' + vkCls(m) + '"' + vkAttr('meeting', m) + '><div class="tk-top"><div><h3 style="margin:0">' + esc(m.title) + '</h3>' +
+      (m.starts_at ? '<span class="pill ' + (up ? 'ok' : '') + '">' + fmtDT(m.starts_at) + (up ? ' · upcoming' : '') + '</span> ' : '') + '<span class="sm">Posted ' + fmtDT(m.created_at) + '</span></div>' +
+      '<div class="act">' + openBtn(m.link, 'Join meeting') + (ADM ? '<button class="btn alt" onclick="delItem(\'meeting_del\',\'' + m.id + '\')">Delete</button>' : '') + '</div></div></div>'; }).join('') ||
+    '<p class="sm" style="margin-top:16px">No meeting posted yet.</p>');
+  if (ADM) $('#mtp').onclick = e => run(async () => {
+    const t = $('#mtt').value.trim(), l = $('#mtl').value.trim(), d = $('#mtd').value, st = d ? new Date(d).toISOString() : '';
+    if (!t) throw Error('Enter the meeting title'); if (!isHttp(l)) throw Error('Paste a valid meeting link (starting with https://)');
+    await T('meeting_add', { sid, ti: t, lk: l, st });
+    toast('Meeting posted'); await load();
+    toast('Meeting posted' + await mailPosted(sid, C.subject.code + ' – meeting: ' + t, t + (st ? '\nDate and time: ' + fmtDT(st) : '') + '\n\nLog in and open the Zoom Meeting tab to join.', 'Meeting', '<p><b>' + esc(t) + '</b></p>' + (st ? '<p>Date and time: ' + esc(fmtDT(st)) + '</p>' : '') + '<p>Log in and open the Zoom Meeting tab to join.</p>'));
+  }, e.target);
+}
+
+function copyProg(ix) { navigator.clipboard.writeText(C.labs[ix].program).then(() => toast('Program copied'), () => toast('Could not copy', 1)); }
+function delItem(fn, i) { if (!confirm('Delete this item?')) return; run(async () => { await T(fn, { i }); await load(); }); }
+
+if (needLogin()) {
+  (async () => {
+    const list = await T('subjects_list');                                   // find the subject from the code in the address
+    const s = URLSUB.code ? list.find(x => x.code.toUpperCase() == URLSUB.code) : list.find(x => x.id == URLSUB.id);
+    if (!s) { buildShell('dash'); $('#main').innerHTML = '<p class="note bad-note">Subject not found, or it is not assigned to you. <a href="' + page('dashboard') + '">Go to the dashboard</a></p>'; return; }
+    sid = s.id; buildShell('sub:' + s.code);
+    await load();
+  })().catch(e => { $('#main').innerHTML = '<p class="note bad-note">' + esc(e.message) + '</p>'; });
+}
+</script>
+</body>
+</html>

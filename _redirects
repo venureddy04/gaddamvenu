@@ -1,0 +1,27 @@
+# Netlify: do not publish setup files.
+/sql/*                    /index.html  404!
+/sql                      /index.html  404!
+/README.md                /index.html  404!
+/DEPLOY-NETLIFY.md         /index.html  404!
+/netlify.toml             /index.html  404!
+/scripts/*                /index.html  404!
+/netlify/*                /index.html  404!
+/.env.example             /index.html  404!
+
+# Short address of the e-mail function (the site tries it if /.netlify/functions/... is not found)
+/api/send-email           /.netlify/functions/send-email  200
+
+# Clean URLs (no .html, no ids):
+#   /subject/DS-2026-2027            /subject/DS-2026-2027/materials   /subject/DS-2026-2027/marks
+/subject/*                /subject.html        200
+/subject                  /subject.html        200
+/dashboard                /dashboard.html      200
+/subjects                 /subjects.html       200
+/students                 /students.html       200
+/email                    /email.html          200
+/timetable                /timetable.html      200
+/login                    /index.html          200
+/calculator              /calculator.html 200
+/r24                     /calculator.html 200
+/r26                     /calculator.html 200
+/instructions             /instructions.html 200

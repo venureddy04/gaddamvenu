@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0d1b2a">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="assets/icon-192.png">
+  <link rel="stylesheet" href="login.css">
+  <title>Login · Gaddam Venu</title>
+</head>
+<body>
+<div class="split">
+  <section class="formcol">
+    <a class="brand" href="./"><img src="assets/logo.png" alt=""><b>Gaddam Venu</b></a>
+    <div class="mid">
+      <form id="f" autocomplete="on">
+        <div><h1>Welcome back</h1></div>
+        <p class="sub">Sign in with your Gmail and password.</p>
+        <div class="f"><label for="u">Gmail</label>
+          <input id="u" required autocomplete="username" inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="yourname@gmail.com"></div>
+        <div class="f"><label for="p">Password</label>
+          <span class="in pw"><input id="p" type="password" required autocomplete="current-password" placeholder="Your password"><button type="button" class="eye" id="eye" aria-label="Show password"></button></span></div>
+        <div class="row2"><span class="hint">Class representative? Type your CR ID.</span><a class="lnk" id="fp" href="#">Forgot password?</a></div>
+        <p class="msg bad" id="em" role="alert" hidden></p>
+        <button class="go" id="go" type="submit">Sign in <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>
+      </form>
+
+      <form id="g" autocomplete="off" hidden>
+        <a class="back" id="bk" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>Back to sign in</a>
+        <div><h1 style="font-size:30px">Reset password</h1></div>
+        <p class="sub">Enter your Gmail. Your password becomes your mobile number.</p>
+        <div class="f"><label for="rg">Gmail</label><input id="rg" type="email" required autocapitalize="none" spellcheck="false" placeholder="yourname@gmail.com"></div>
+        <p class="msg" id="gm" hidden></p>
+        <button class="go" id="gr" type="submit">Reset password</button>
+      </form>
+    </div>
+    <div class="tools">
+      <a class="tl" id="apk" href="#" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Android app</a>
+      <button type="button" class="tl" id="rf" aria-label="Refresh the page"><span id="rfi" style="display:flex"></span>Refresh</button>
+    </div>
+  </section>
+
+  <section class="show">
+    <div class="showin">
+      <figure class="me">
+        <div class="meph"><img src="assets/venu.jpg" width="720" height="900" alt="Gaddam Venu" decoding="async" fetchpriority="high"></div>
+        <figcaption><b>Gaddam Venu</b><span>Software Developer || Java Engineer  || Agentic AI Developer</span></figcaption>
+      </figure>
+      <div class="showtx">
+      <h2>One place for your <em>class</em> and your <em>projects</em>.</h2>
+      <div class="tiles">
+        <div class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><b>Notices</b><span>Posted once, seen by everyone</span></div>
+        <div class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><b>Tasks</b><span>Submit one Drive link</span></div>
+        <div class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><b>Teams</b><span>Mini and major projects</span></div>
+        <div class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><b>Drive links</b><span>Share code, reports and PPTs</span></div>
+        <div class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg><b>Marks</b><span>Published when ready</span></div>
+        <div class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><b>Timetable</b><span>Your year and semester</span></div>
+      </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+const NEXT = page('dashboard');
+if (tok()) location.href = NEXT;
+$('#apk').href = APK_URL;
+$('#rfi').innerHTML = REFRESH_ICO; $('#rf').onclick = e => hardRefresh(e.currentTarget);
+
+/* show / hide password */
+const EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+  EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+$('#eye').innerHTML = EYE;
+$('#eye').onclick = () => { const s = $('#p').type == 'password'; $('#p').type = s ? 'text' : 'password'; $('#eye').innerHTML = s ? EYE_OFF : EYE; $('#eye').setAttribute('aria-label', s ? 'Hide password' : 'Show password'); };
+
+const err = m => { $('#em').hidden = !m; $('#em').textContent = m || ''; };
+const show = id => { $('#f').hidden = id != 'f'; $('#g').hidden = id != 'g'; };
+
+/* one login for everybody: a student uses Gmail + password, the admin uses the admin Gmail, a CR uses the CR ID. The database decides who you are. */
+$('#f').onsubmit = async e => {
+  e.preventDefault(); err(''); const b = $('#go'); b.disabled = true;
+  try {
+    const r = await rpc('unified_login', { u: $('#u').value.trim(), p: $('#p').value });
+    if (!r || r.error) throw new Error((r && r.error) || 'Login failed');
+    localStorage.ng_tok = r.token; localStorage.ng_role = r.role; localStorage.ng_name = r.name; localStorage.ng_sub = r.sub; if (r.photo) localStorage.ng_photo = r.photo; else delete localStorage.ng_photo;
+    location.href = NEXT;
+  } catch (x) { err(x.message || String(x)); b.disabled = false; }
+};
+
+/* forgot password: Gmail only -> the password becomes the student's mobile number */
+$('#fp').onclick = e => { e.preventDefault(); $('#gm').hidden = true; $('#rg').value = $('#u').value.includes('@') ? $('#u').value.trim() : ''; show('g'); };
+$('#bk').onclick = e => { e.preventDefault(); show('f'); };
+$('#g').onsubmit = e => {
+  e.preventDefault();
+  run(async () => {
+    const em = $('#rg').value.trim().toLowerCase();
+    const r = await rpc('forgot_password', { em });
+    if (!r || r.error) throw new Error((r && r.error) || 'Could not reset the password');
+    $('#gm').hidden = false; $('#gm').textContent = 'Done. Your password is now your mobile number. Sign in, then change it in your profile.';
+    $('#u').value = em; $('#p').value = '';
+  }, $('#gr'));
+};
+</script>
+</body>
+</html>

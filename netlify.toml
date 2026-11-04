@@ -1,0 +1,14 @@
+[build]
+  publish   = "."
+  command   = "node scripts/build-config.js"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+  # These values are public by design (they end up in config.js), so Netlify's secret scan must ignore them
+  # BREVO_SENDER_NAME / BREVO_SENDER_EMAIL / BREVO_REPLY_TO appear on the site too, so the scan must ignore them or the deploy FAILS
+  SECRETS_SCAN_OMIT_KEYS = "SB_URL,SB_KEY,ADMIN_MAIL,ORG_NAME,DEVELOPERS,APK_URL,BREVO_SENDER_NAME,BREVO_SENDER_EMAIL,BREVO_REPLY_TO"
+
+# the e-mail function also reads SB_URL / SB_KEY from config.js when they are not in the environment
+[functions]
+  included_files = ["config.js"]
