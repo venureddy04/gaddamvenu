@@ -66,7 +66,7 @@ const PJ = () => isProj(C.subject.kind);
 let PT = null, FM = [], WK = [];            // project: teams, formats, work posts
 let EL = [], LM = [], MT = [];               // v46: exam links, lab manuals, zoom meetings  (null = SQL file 08_upgrade_v46.sql not run yet)
 const MAT_ALL = MAT_CATS.concat(['Other']);      // v46: Materials = Unit 1-6 + Other (the admin types the name)
-const EXK = { lab: 'Lab exam', theory: 'Theory exam' };                      // only Theory exam and Lab exam
+const EXK = { lab: 'Lab exam', theory: 'Theory exam', login: 'Login IDs' };
 const tabs = () => (PJ() ? [['students','Students'],['teams','Teams'],['formats','Formats'],['notices','Notices'],['tasks','Tasks'],['work','Submit Work'],['exams','Exams'],['meetings','Zoom Meeting'],['crs','CR']] :
     [['students','Students'],['syllabus','Syllabus'],['lessonplan','Lesson Plan'],['materials','Materials'],['videos','Video Lessons'],['marks','Theory Marks'],['notices','Notices'],['tasks','Tasks'],['work','Submit Work'],['exams','Exams'],
     ['labs','Lab Programs'],['labmanual','Lab Manual'],['labsheet','Lab Marks'],['meetings','Zoom Meeting'],['crs','CR']])
@@ -859,22 +859,22 @@ const sqlMissing = '<p class="note bad-note">Run the new SQL file <code>08_upgra
 const isHttp = u => /^https?:\/\/\S+$/i.test(u);
 const openBtn = (u, label, cls) => '<a class="btn ' + (cls || 'y') + '" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';     // target = open in a NEW page
 
-/* ---------- EXAMS (v46): the admin posts a link; students open it inside this website.  Two kinds: Lab exam | Theory exam ---------- */
+/* ---------- EXAMS (v46): the admin posts a link; students open it inside this website.  Three kinds: Lab exam | Theory exam | Login IDs.  Lab exam and Theory exam links open in a NEW page (tab); Login IDs open inside this website ---------- */
 function examsPane() {
   if (EL === null) { $('#pane').innerHTML = sqlMissing; return; }
   const form = !ADM ? '' : '<div class="card"><h3>Post an exam link</h3>' +
     '<div class="fld"><label id="exkl">What is it?</label><div class="rbx" role="radiogroup" aria-labelledby="exkl">' +
-      [['lab', 'Lab exam', 'Link of the lab exam'], ['theory', 'Theory exam', 'Link of the theory exam']].map((k, i) =>
+      [['lab', 'Lab exam', 'Link of the lab exam'], ['theory', 'Theory exam', 'Link of the theory exam'], ['login', 'Login IDs', 'Link with the exam login IDs']].map((k, i) =>
         '<label><input type="radio" name="exk" value="' + k[0] + '"' + (i ? '' : ' checked') + '><span><b>' + k[1] + '</b><small>' + k[2] + '</small></span></label>').join('') + '</div></div>' +
     '<div class="form2" style="margin-top:14px">' +
       '<label class="fld"><span class="req">Title</span><input id="ext" maxlength="120" placeholder="e.g. Lab internal exam – Batch 1" autocomplete="off"></label>' +
       '<label class="fld"><span class="req">Link</span><input id="exl" type="url" placeholder="https://…" autocomplete="off"></label></div>' +
-    '<p class="sm" style="margin-top:10px">Any link works (your exam website, Google Form, Drive). Students open it <b>inside this website</b> (no new page). Every student of this subject gets a notification.</p>' +
+    '<p class="sm" style="margin-top:10px">Any link works (your exam website, Google Form, Drive). <b>Lab exam and Theory exam</b> links open in a <b>new page</b>; <b>Login IDs</b> open inside this website. Every student of this subject gets a notification.</p>' +
     '<div class="row"><button class="btn y" id="exp">Post link</button></div></div>';
-  const groups = ['lab', 'theory'].map(k => ({ k, list: EL.filter(x => x.kind == k) })).filter(g => g.list.length);
+  const groups = ['lab', 'theory', 'login'].map(k => ({ k, list: EL.filter(x => x.kind == k) })).filter(g => g.list.length);
   $('#pane').innerHTML = form + (groups.map(g => '<h3 style="margin-top:20px">' + EXK[g.k] + '</h3>' + g.list.map(x =>
     '<div class="card wk' + vkCls(x) + '"' + vkAttr('examlink', x) + '><div class="tk-top"><div><h3 style="margin:0">' + esc(x.title) + '</h3><span class="pill ' + (x.kind == 'lab' ? 'ok' : x.kind == 'login' ? 'wait' : '') + '">' + EXK[x.kind] + '</span> <span class="sm">Posted ' + fmtDT(x.created_at) + '</span></div>' +
-      '<div class="act">' + '<button class="btn y" onclick="openItem(\'exam\',\'' + x.id + '\')">' + 'Open ' + EXK[x.kind].toLowerCase() + '</button>' +
+      '<div class="act">' + (x.kind != 'login' && isHttp(x.link) ? '<a class="btn y" href="' + esc(x.link) + '" target="_blank" rel="noopener noreferrer">Open ' + EXK[x.kind].toLowerCase() + '</a>' : '<button class="btn y" onclick="openItem(\'exam\',\'' + x.id + '\')">' + (x.kind == 'login' ? 'Open login IDs' : 'Open ' + EXK[x.kind].toLowerCase()) + '</button>') +
       (ADM ? '<button class="btn alt" onclick="delItem(\'examlink_del\',\'' + x.id + '\')">Delete</button>' : '') + '</div></div></div>').join('')).join('') ||
     '<p class="sm" style="margin-top:16px">No exam links posted yet.</p>');
   if (ADM) $('#exp').onclick = e => run(async () => {
